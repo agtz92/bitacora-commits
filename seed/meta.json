@@ -1,0 +1,435 @@
+{
+  "EvergreenSEO": {
+    "clients": [
+      "Hulempak",
+      "HEQ",
+      "PHASA",
+      "DRR",
+      "Personal"
+    ],
+    "tags": [
+      "tool generation",
+      "seo"
+    ]
+  },
+  "TC5061-Proyecto-Equipo24": {
+    "clients": [
+      "Personal"
+    ],
+    "tags": [
+      "maestria"
+    ]
+  },
+  "ads-analyst": {
+    "clients": [
+      "Hulempak",
+      "HEQ",
+      "PHASA",
+      "DRR"
+    ],
+    "tags": [
+      "tool generation"
+    ]
+  },
+  "ai-directory": {
+    "clients": [
+      "Personal"
+    ],
+    "tags": [
+      "tool generation"
+    ]
+  },
+  "audit-lighthouse": {
+    "clients": [
+      "Hulempak",
+      "HEQ",
+      "PHASA",
+      "DRR",
+      "Personal"
+    ],
+    "tags": [
+      "tool generation",
+      "seo"
+    ]
+  },
+  "backend-compatips": {
+    "clients": [
+      "PHASA",
+      "DRR"
+    ],
+    "tags": [
+      "tool generation"
+    ]
+  },
+  "backend-multitenant-phasa-gg": {
+    "clients": [
+      "PHASA",
+      "DRR"
+    ],
+    "tags": [
+      "tool generation"
+    ]
+  },
+  "backend_django_Auth": {
+    "clients": [
+      "Hulempak"
+    ],
+    "tags": [
+      "tool generation"
+    ]
+  },
+  "backend_website_cms_generator": {
+    "clients": [
+      "PHASA",
+      "DRR",
+      "HEQ",
+      "Hulempak"
+    ],
+    "tags": [
+      "tool generation"
+    ]
+  },
+  "bodytrack": {
+    "clients": [
+      "Personal"
+    ],
+    "tags": [
+      "website generation"
+    ]
+  },
+  "ch_auth_backend": {
+    "clients": [
+      "Hulempak"
+    ],
+    "tags": [
+      "tool generation"
+    ]
+  },
+  "ch_auth_frontend": {
+    "clients": [
+      "Hulempak"
+    ],
+    "tags": [
+      "tool generation"
+    ]
+  },
+  "chmm_auth": {
+    "clients": [
+      "Hulempak"
+    ],
+    "tags": [
+      "tool generation"
+    ]
+  },
+  "conciliador-manual": {
+    "clients": [
+      "Hulempak",
+      "HEQ",
+      "PHASA",
+      "DRR"
+    ],
+    "tags": [
+      "tool generation"
+    ]
+  },
+  "consiliacion_facturas": {
+    "clients": [
+      "Hulempak",
+      "HEQ",
+      "PHASA",
+      "DRR"
+    ],
+    "tags": [
+      "tool generation"
+    ]
+  },
+  "continuity-mobile": {
+    "clients": [
+      "Personal"
+    ],
+    "tags": [
+      "saas"
+    ]
+  },
+  "continuity_backend": {
+    "clients": [
+      "Personal"
+    ],
+    "tags": [
+      "saas"
+    ]
+  },
+  "continuity_frontend": {
+    "clients": [
+      "Personal"
+    ],
+    "tags": [
+      "saas"
+    ]
+  },
+  "cortina-hawaiana": {
+    "clients": [
+      "Hulempak"
+    ],
+    "tags": [
+      "website generation"
+    ]
+  },
+  "discord-continuuit": {
+    "clients": [
+      "Personal"
+    ],
+    "tags": [
+      "saas"
+    ]
+  },
+  "django-auth": {
+    "clients": [
+      "Hulempak"
+    ],
+    "tags": [
+      "tool generation"
+    ]
+  },
+  "enciclopediahule": {
+    "clients": [
+      "Hulempak",
+      "HEQ",
+      "PHASA",
+      "DRR"
+    ],
+    "tags": [
+      "backlinks",
+      "seo"
+    ]
+  },
+  "english-stuff-nextjs": {
+    "clients": [
+      "Hulempak",
+      "HEQ",
+      "PHASA",
+      "DRR"
+    ],
+    "tags": [
+      "backlinks",
+      "seo"
+    ]
+  },
+  "envases-pet": {
+    "clients": [
+      "Personal"
+    ],
+    "tags": [
+      "website generation"
+    ]
+  },
+  "fantasy-hq-git": {
+    "clients": [
+      "Personal"
+    ],
+    "tags": [
+      "no revenue"
+    ]
+  },
+  "fantasy-hq": {
+    "clients": [
+      "Personal"
+    ],
+    "tags": [
+      "no revenue"
+    ]
+  },
+  "frontend-compatips": {
+    "clients": [
+      "PHASA",
+      "DRR"
+    ],
+    "tags": [
+      "tool generation"
+    ]
+  },
+  "frontend_django_auth": {
+    "clients": [
+      "Hulempak"
+    ],
+    "tags": [
+      "tool generation"
+    ]
+  },
+  "frontend_multitenant-phasa-gg": {
+    "clients": [
+      "PHASA",
+      "DRR"
+    ],
+    "tags": [
+      "tool generation"
+    ]
+  },
+  "frontend_website_cms_generator": {
+    "clients": [
+      "Hulempak",
+      "HEQ",
+      "PHASA",
+      "DRR"
+    ],
+    "tags": [
+      "tool generation"
+    ]
+  },
+  "hackingyourvibe": {
+    "clients": [
+      "Personal"
+    ],
+    "tags": [
+      "tool development"
+    ]
+  },
+  "homelab": {
+    "clients": [
+      "Personal"
+    ],
+    "tags": [
+      "no revenue"
+    ]
+  },
+  "invitacionFiesta": {
+    "clients": [
+      "DRR"
+    ],
+    "tags": [
+      "tool generation"
+    ]
+  },
+  "mexgamer": {
+    "clients": [
+      "Hulempak",
+      "HEQ",
+      "PHASA",
+      "DRR"
+    ],
+    "tags": [
+      "backlinks",
+      "seo"
+    ]
+  },
+  "multitenant-auth-boilerplate": {
+    "clients": [
+      "DRR",
+      "PHASA",
+      "HEQ",
+      "Hulempak"
+    ],
+    "tags": [
+      "tool generation"
+    ]
+  },
+  "new-proyectounam": {
+    "clients": [
+      "Hulempak",
+      "HEQ",
+      "PHASA",
+      "DRR"
+    ],
+    "tags": [
+      "backlinks",
+      "seo"
+    ]
+  },
+  "new-shitposters": {
+    "clients": [
+      "Hulempak",
+      "HEQ",
+      "PHASA",
+      "DRR"
+    ],
+    "tags": [
+      "backlinks",
+      "seo"
+    ]
+  },
+  "new_mmchpv": {
+    "clients": [
+      "Hulempak"
+    ],
+    "tags": [
+      "sitio web"
+    ]
+  },
+  "pisos-spc-website": {
+    "clients": [
+      "Personal"
+    ],
+    "tags": [
+      "website development"
+    ]
+  },
+  "renamer_files": {
+    "clients": [
+      "Personal"
+    ],
+    "tags": [
+      "no revenue"
+    ]
+  },
+  "saga": {
+    "clients": [
+      "DRR"
+    ],
+    "tags": [
+      "website development"
+    ]
+  },
+  "sitio_generico": {
+    "clients": [
+      "PHASA",
+      "DRR"
+    ],
+    "tags": [
+      "website development"
+    ]
+  },
+  "superCMS": {
+    "clients": [
+      "Hulempak",
+      "HEQ",
+      "PHASA",
+      "DRR",
+      "Personal"
+    ],
+    "tags": [
+      "website development"
+    ]
+  },
+  "tareas-iayaa-em-2026-agtz92": {
+    "clients": [
+      "Personal"
+    ],
+    "tags": [
+      "maestria"
+    ]
+  },
+  "tareas-nlp-mna25-aj-2026-agtz92-3": {
+    "clients": [
+      "Personal"
+    ],
+    "tags": [
+      "maestria"
+    ]
+  },
+  "tc5061-mlflow": {
+    "clients": [
+      "Personal"
+    ],
+    "tags": [
+      "maestria"
+    ]
+  },
+  "velmar": {
+    "clients": [
+      "DRR"
+    ],
+    "tags": [
+      "website development"
+    ]
+  }
+}

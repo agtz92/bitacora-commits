@@ -1,0 +1,14 @@
+services:
+  bitacora:
+    build: .
+    container_name: bitacora-commits
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "${PORT:-8787}:8000"
+    volumes:
+      # SQLite + espejos git. Sobrevive a rebuilds y reinicios.
+      - bitacora-data:/data
+
+volumes:
+  bitacora-data:
