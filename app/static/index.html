@@ -27,9 +27,36 @@ h2{font-family:var(--display);font-weight:700;font-size:1.2rem;margin:0}
 nav{display:flex;gap:4px;border-bottom:1px solid var(--line)}
 nav a{padding:8px 14px;color:var(--muted);text-decoration:none;font-weight:600;border-bottom:2px solid transparent;margin-bottom:-1px}
 nav a.on{color:var(--fg);border-color:var(--accent)}
-.syncbox{display:flex;flex-direction:column;align-items:flex-end;gap:4px;min-width:0}
-.syncbox .st{font-size:.82rem;color:var(--muted);text-align:right;max-width:520px}
+header{align-items:center}
+.syncbox{display:flex;flex-direction:column;align-items:flex-end;gap:6px;min-width:0;position:relative}
 .syncbox .row{display:flex;gap:8px}
+.syncline{display:flex;align-items:center;gap:8px;font-size:.82rem;color:var(--muted);max-width:min(560px,100%)}
+.syncline .txt{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.syncline .dot{width:8px;height:8px;border-radius:50%;background:var(--ok);flex:none}
+.syncline .dot.run{background:var(--accent);animation:pulse 1s ease-in-out infinite}
+.syncline .dot.err{background:var(--err)}
+@keyframes pulse{50%{opacity:.3}}
+.linkbtn{all:unset;cursor:pointer;color:var(--accent);font-size:.82rem;white-space:nowrap}
+.linkbtn:hover,.linkbtn:focus-visible{text-decoration:underline}
+.syncpanel{position:absolute;top:100%;right:0;margin-top:6px;z-index:30;width:min(460px,calc(100vw - 32px));max-height:60vh;overflow:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 32px rgba(10,20,40,.18);padding:14px;font-size:.85rem;display:flex;flex-direction:column;gap:10px}
+.syncpanel h4{margin:0;font-family:var(--display);font-size:.95rem}
+.syncpanel ul{margin:0;padding-left:18px;color:var(--muted);columns:2;column-gap:20px}
+.syncpanel ul.err{columns:1;color:var(--err)}
+.syncpanel dl{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:0}
+.syncpanel dt{color:var(--muted)} .syncpanel dd{margin:0;font-family:var(--mono);font-size:.8rem}
+.pop{position:absolute;z-index:40;width:340px;max-width:calc(100vw - 32px);background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 32px rgba(10,20,40,.2);padding:14px;display:flex;flex-direction:column;gap:12px}
+.pop .ph{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.pop .ph b{font-family:var(--display);font-size:1rem;overflow-wrap:anywhere}
+.pop .ph a{font-size:.75rem}
+.pop .lbl{font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}
+.pop .opts{display:flex;flex-wrap:wrap;gap:6px}
+.pop .opts button{font:inherit;font-size:.8rem;padding:4px 10px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--fg);cursor:pointer}
+.pop .opts button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--hfg)}
+.pop .opts button.tagx{font-family:var(--mono);font-size:.75rem}
+.pop .add{display:flex;gap:6px;margin-top:8px}
+.pop .add input{flex:1;font-size:.85rem;padding:5px 8px}
+.pop .foot{display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--line);padding-top:10px}
+.pop .msg{font-size:.78rem;color:var(--muted)}
 .stats{display:flex;flex-wrap:wrap;gap:24px;font-family:var(--mono);font-size:.85rem;color:var(--muted)}
 .stats b{display:block;font-size:1.3rem;color:var(--fg);font-weight:600}
 .controls{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
@@ -60,13 +87,8 @@ tfoot td{border-top:1px solid var(--line);font-family:var(--mono);font-size:.72r
 .yearsep{border-left:2px solid var(--line)}
 .panel{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:18px;display:flex;flex-direction:column;gap:14px;min-width:0}
 .dhead{display:flex;flex-wrap:wrap;gap:12px;align-items:baseline;justify-content:space-between}
-.editor{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:10px;align-items:end;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
-.editor label,.sform label{display:flex;flex-direction:column;gap:4px;font-size:.78rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;min-width:0}
-.editor .msg{grid-column:1/-1;font-size:.82rem;color:var(--muted);min-height:1.2em}
+.sform label{display:flex;flex-direction:column;gap:4px;font-size:.78rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;min-width:0}
 .msg.ok{color:var(--ok)} .msg.err{color:var(--err)}
-.quick{display:flex;flex-wrap:wrap;gap:6px;grid-column:1/-1}
-.quick button{font:inherit;font-size:.78rem;padding:3px 9px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--fg);cursor:pointer}
-.quick button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--hfg)}
 .months{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}
 .month{border-top:2px solid var(--accent);padding-top:6px;min-width:0}
 .month h3{font-family:var(--display);font-size:.95rem;margin:0 0 6px;display:flex;justify-content:space-between}
@@ -94,7 +116,7 @@ button:focus-visible,select:focus-visible,input:focus-visible,a:focus-visible{ou
 .bymonth span{font-family:var(--mono);font-size:.75rem;padding:3px 8px;border:1px solid var(--line);border-radius:4px}
 .empty{padding:28px;text-align:center;color:var(--muted)}
 [hidden]{display:none!important}
-@media (max-width:640px){.editor{grid-template-columns:1fr}.legend{margin-left:0}.sline{grid-template-columns:1fr}.syncbox{align-items:flex-start}.syncbox .st{text-align:left}}
+@media (max-width:640px){.legend{margin-left:0}.sline{grid-template-columns:1fr}.syncbox{align-items:flex-start}.syncpanel{left:0;right:auto}}
 @media (prefers-reduced-motion: reduce){*{scroll-behavior:auto!important}}
 </style>
 </head>
@@ -110,7 +132,8 @@ button:focus-visible,select:focus-visible,input:focus-visible,a:focus-visible{ou
         <button class="btn primary" id="sync">Buscar repos y commits nuevos</button>
         <button class="btn" id="syncforce" title="Vuelve a revisar todos los repos, aunque no tengan pushes nuevos">Revisar todo</button>
       </div>
-      <div class="st" id="syncst">Cargando…</div>
+      <div class="syncline"><span class="dot" id="syncdot"></span><span class="txt" id="syncst">Cargando…</span><button class="linkbtn" id="syncmore" aria-expanded="false" aria-controls="syncpanel">Detalle</button></div>
+      <div class="syncpanel" id="syncpanel" hidden></div>
     </div>
   </header>
   <nav><a href="#matriz" id="tab-matriz">Matriz</a><a href="#resumen" id="tab-resumen">Resumen</a></nav>
@@ -156,7 +179,7 @@ button:focus-visible,select:focus-visible,input:focus-visible,a:focus-visible{ou
     <div class="panel" id="sout"></div>
   </section>
 </div>
-<datalist id="clients"></datalist>
+<datalist id="clients"></datalist><datalist id="tagopts"></datalist>
 <script>
 const MN=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
 const BASE_CLIENTS=['Hulempak','HEQ','PHASA','DRR','Personal'];
@@ -185,7 +208,7 @@ function renderTable(){
   $('#q').value=state.q;$('#sort').value=state.sort;$('#bots').checked=state.bots;
   fillSelect($('#fclient'),'Todos los clientes',allClients(),state.fclient);state.fclient=$('#fclient').value;
   fillSelect($('#ftag'),'Todas las etiquetas',allTags(),state.ftag);state.ftag=$('#ftag').value;
-  $('#clients').innerHTML=allClients().map(c=>`<option value="${esc(c)}">`).join('');
+  $('#clients').innerHTML=allClients().map(c=>`<option value="${esc(c)}">`).join('');$('#tagopts').innerHTML=allTags().map(c=>`<option value="${esc(c)}">`).join('');
   let rows=M.repos.filter(r=>{
     if(!r.name.toLowerCase().includes(state.q.toLowerCase()))return false;
     if(state.fclient==='__none'&&r.clients.length)return false;
@@ -208,7 +231,7 @@ function renderTable(){
   for(const r of rows){
     const ck=r.created.slice(0,7);
     const chips=(r.clients.length?r.clients.map(chip).join(''):'<span class="chip none">sin cliente</span>')+r.tags.map(t=>`<span class="chip tag">${esc(t)}</span>`).join('');
-    h+=`<tr class="${state.sel===r.id?'sel':''}"><td class="name"><button class="rn" data-r="${r.id}">${esc(r.name)}</button><small>${esc(r.owner)} · creado ${fmtD(r.created)}${r.error?' · ⚠ error al sincronizar':''}</small><div class="tags">${chips}</div></td>`;
+    h+=`<tr class="${state.sel===r.id?'sel':''}"><td class="name"><button class="rn" data-r="${r.id}" aria-haspopup="dialog" aria-expanded="${popRepo===r.id}">${esc(r.name)}</button><small>${esc(r.owner)} · creado ${fmtD(r.created)}${r.error?' · ⚠ error al sincronizar':''}</small><div class="tags">${chips}</div></td>`;
     months.forEach(k=>{const n=r.months[k]||0;colTot[k]+=n;const lv=level(n);const pre=k<ck&&!n;
       const st=lv?`background:var(--h${lv});color:${lv>=4?'var(--hfg)':'var(--fg)'}`:'';
       h+=`<td class="c ${k.endsWith('-01')?'yearsep':''}"><span class="${pre?'pre':''}" style="${st}" title="${esc(r.name)} · ${fmtM(k)}: ${n} commit${n===1?'':'s'}">${n||''}</span></td>`});
@@ -222,10 +245,10 @@ function renderTable(){
   $('#stats').innerHTML=`<div><b>${rows.length}</b>repositorios</div><div><b>${tot.toLocaleString('es-MX')}</b>commits</div><div><b>${months.filter(k=>colTot[k]).length} de ${months.length}</b>meses con actividad</div><div><b>${rows.filter(r=>!r.clients.length).length}</b>sin cliente</div><div><b>${fmtD(M.last_commit)}</b>último commit</div>`;
 }
 
-let formDirty=false,savedRepo=null,detailCache={};
+let detailCache={};
 async function renderDetail(){
   const el=$('#detail');const r=M.repos.find(x=>x.id===state.sel);
-  if(!r){el.innerHTML='<h2>Detalle por día</h2><p class="note">Elige un repositorio en la tabla para asignar clientes y etiquetas, y ver la fecha y SHA de cada commit.</p>';return}
+  if(!r){el.innerHTML='<h2>Detalle por día</h2><p class="note">Toca el nombre de un repositorio para asignarle clientes y etiquetas. Desde ese menú, “Ver commits por día” muestra aquí la fecha y SHA de cada commit.</p>';return}
   const key=r.id+':'+state.bots+':'+r.total;
   if(!detailCache[key])detailCache[key]=(await api(`/api/repos/${r.id}/commits?bots=${state.bots}`)).commits;
   if(state.sel!==r.id)return;
@@ -233,45 +256,82 @@ async function renderDetail(){
   const bym={};for(const c of cs){(bym[c.month]??={})[c.local_date]??=[];bym[c.month][c.local_date].push(c)}
   const keys=Object.keys(bym).sort();
   let h=`<div class="dhead"><div><h2>${esc(r.name)}</h2><p class="sub"><a class="sha" href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.full_name)}</a> · creado ${fmtD(r.created)} · ${cs.length} commits en ${keys.length} meses y ${new Set(cs.map(c=>c.local_date)).size} días</p></div><button class="btn" id="close">Cerrar detalle</button></div>
-  <form class="editor" id="editor" autocomplete="off">
-    <label>Clientes (separados por coma)<input type="text" id="e-client" value="${esc(r.clients.join(', '))}" placeholder="Hulempak, PHASA"></label>
-    <label>Etiquetas (separadas por coma)<input type="text" id="e-tags" value="${esc(r.tags.join(', '))}" placeholder="backlinks, seo"></label>
-    <button class="btn primary" type="submit" id="e-save">Guardar</button>
-    <div class="quick">${allClients().map(c=>`<button type="button" data-c="${esc(c)}" aria-pressed="${r.clients.includes(c)}">${r.clients.includes(c)?'✓ ':'+ '}${esc(c)}</button>`).join('')}</div>
-    <div class="msg${savedRepo===r.id?' ok':''}" id="e-msg">${savedRepo===r.id?'Guardado':''}</div>
-  </form><div class="months">`;
+<div class="months">`;
   for(const k of keys){const ds=Object.keys(bym[k]).sort();const n=ds.reduce((a,d)=>a+bym[k][d].length,0);
     h+=`<div class="month"><h3>${fmtM(k)}<span>${n} commits · ${ds.length} días</span></h3>`;
     for(const d of ds)h+=`<div class="day"><div class="dt">${fmtD(d).replace(/ \d{4}$/,'')}</div><ul>${bym[k][d].map(c=>`<li><a class="sha" href="${esc(r.url)}/commit/${c.sha}" target="_blank" rel="noopener">${c.sha.slice(0,7)}</a> <code>${c.local_time}</code> ${esc(c.message)}${c.is_bot?' <em>(bot)</em>':''}</li>`).join('')}</ul></div>`;
     h+='</div>'}
-  el.innerHTML=h+'</div>';formDirty=false;
+  el.innerHTML=h+'</div>';
   $('#close').onclick=()=>{state.sel=null;save();renderTable();renderDetail()};
-  $('#editor').oninput=()=>{formDirty=true;savedRepo=null;$('#e-msg').textContent='Cambios sin guardar';$('#e-msg').className='msg'};
-  $('#editor').querySelectorAll('.quick button').forEach(b=>b.onclick=()=>{const cur=parseList($('#e-client').value);const c=b.dataset.c;$('#e-client').value=(cur.includes(c)?cur.filter(x=>x!==c):[...cur,c]).join(', ');saveMeta()});
-  $('#editor').onsubmit=e=>{e.preventDefault();saveMeta()};
 }
-async function saveMeta(){
-  const r=M.repos.find(x=>x.id===state.sel);if(!r)return;
-  const body={clients:parseList($('#e-client').value),tags:parseList($('#e-tags').value,true)};
-  $('#e-msg').textContent='Guardando…';
+
+// ---- menú de cliente y etiquetas ----
+let popRepo=null;
+const pop=document.createElement('div');pop.className='pop';pop.hidden=true;pop.setAttribute('role','dialog');document.body.appendChild(pop);
+function closePop(){pop.hidden=true;const prev=popRepo;popRepo=null;if(prev){const b=document.querySelector(`button[data-r="${prev}"]`);b?.setAttribute('aria-expanded','false');b?.focus({preventScroll:true})}}
+function placePop(anchor){const a=anchor.getBoundingClientRect();const w=pop.offsetWidth;let left=a.left+window.scrollX;
+  left=Math.min(left,window.scrollX+document.documentElement.clientWidth-w-16);pop.style.left=Math.max(16,left)+'px';pop.style.top=(a.bottom+window.scrollY+6)+'px'}
+function openPop(id,anchor){
+  const r=M.repos.find(x=>x.id===id);if(!r)return;popRepo=id;anchor.setAttribute('aria-expanded','true');
+  const clients=[...new Set([...allClients(),...r.clients])];
+  pop.innerHTML=`<div class="ph"><b>${esc(r.name)}</b><a class="sha" href="${esc(r.url)}" target="_blank" rel="noopener">GitHub ↗</a></div>
+  <div><div class="lbl">Clientes</div><div class="opts" id="p-clients">${clients.map(c=>`<button type="button" data-c="${esc(c)}" aria-pressed="${r.clients.includes(c)}">${r.clients.includes(c)?'✓ ':''}${esc(c)}</button>`).join('')}</div>
+    <form class="add" id="p-addc"><input type="text" id="p-newc" placeholder="Otro cliente…" list="clients" aria-label="Agregar otro cliente"><button class="btn" type="submit">Agregar</button></form></div>
+  <div><div class="lbl">Etiquetas</div><div class="opts" id="p-tags">${r.tags.length?r.tags.map(t=>`<button type="button" class="tagx" data-t="${esc(t)}" aria-pressed="true" title="Quitar etiqueta">${esc(t)} ×</button>`).join(''):'<span class="note">Sin etiquetas</span>'}</div>
+    <form class="add" id="p-addt"><input type="text" id="p-newt" placeholder="backlinks, seo…" list="tagopts" aria-label="Agregar etiquetas"><button class="btn" type="submit">Agregar</button></form>
+    <div class="opts" style="margin-top:6px">${allTags().filter(t=>!r.tags.includes(t)).map(t=>`<button type="button" class="tagx" data-addt="${esc(t)}">+ ${esc(t)}</button>`).join('')}</div></div>
+  <div class="foot"><button class="linkbtn" id="p-commits">Ver commits por día</button><span class="msg" id="p-msg"></span></div>`;
+  pop.hidden=false;placePop(anchor);
+  pop.querySelectorAll('[data-c]').forEach(b=>b.onclick=()=>{const c=b.dataset.c;saveMeta(r,{clients:r.clients.includes(c)?r.clients.filter(x=>x!==c):[...r.clients,c]})});
+  pop.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>saveMeta(r,{tags:r.tags.filter(x=>x!==b.dataset.t)}));
+  pop.querySelectorAll('[data-addt]').forEach(b=>b.onclick=()=>saveMeta(r,{tags:[...r.tags,b.dataset.addt]}));
+  $('#p-addc').onsubmit=e=>{e.preventDefault();const v=parseList($('#p-newc').value);if(v.length)saveMeta(r,{clients:[...r.clients,...v]})};
+  $('#p-addt').onsubmit=e=>{e.preventDefault();const v=parseList($('#p-newt').value,true);if(v.length)saveMeta(r,{tags:[...r.tags,...v]})};
+  $('#p-commits').onclick=()=>{state.sel=r.id;save();closePop();renderTable();renderDetail();$('#detail').scrollIntoView({behavior:'smooth'})};
+}
+async function saveMeta(r,patch){
+  const body={clients:patch.clients??r.clients,tags:patch.tags??r.tags};
+  const msg=$('#p-msg');if(msg)msg.textContent='Guardando…';
   try{const res=await api(`/api/repos/${r.id}/meta`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-    r.clients=res.clients;r.tags=res.tags;savedRepo=r.id;renderTable();renderDetail();fillSummaryFilters()}
-  catch(e){$('#e-msg').textContent='No se pudo guardar: '+e.message;$('#e-msg').className='msg err'}
+    r.clients=res.clients;r.tags=res.tags;renderTable();fillSummaryFilters();
+    const anchor=document.querySelector(`button[data-r="${r.id}"]`);
+    if(anchor&&popRepo===r.id){openPop(r.id,anchor);$('#p-msg').textContent='Guardado';$('#p-msg').className='msg ok'}
+    if(state.sel===r.id)renderDetail()}
+  catch(e){if(msg){msg.textContent='No se pudo guardar';msg.className='msg err'}}
 }
+document.addEventListener('click',e=>{
+  if(!pop.hidden&&!pop.contains(e.target)&&!e.target.closest('button[data-r]'))closePop();
+  if(!$('#syncpanel').hidden&&!e.target.closest('.syncbox'))toggleSyncPanel(false);
+});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(!pop.hidden)closePop();toggleSyncPanel(false)}});
+window.addEventListener('resize',()=>{if(!pop.hidden){const a=document.querySelector(`button[data-r="${popRepo}"]`);a?placePop(a):closePop()}});
 
 // ---- sincronización ----
 let polling=null;
-function describeSync(st){
-  if(st.running)return `${st.phase}${st.total?` · ${st.done}/${st.total}`:''}${st.current?` · ${st.current}`:''}`;
-  const l=st.last;if(!l)return 'Aún no se ha sincronizado.';
-  const when=new Date(l.finished_at||l.started_at).toLocaleString('es-MX',{dateStyle:'medium',timeStyle:'short'});
-  let s=`Última revisión: ${when} · ${l.repos_total??'?'} repos · ${l.new_repos.length} nuevos · ${l.new_commits} commits nuevos`;
-  if(l.new_repos.length)s+=` (${l.new_repos.map(n=>n.split('/')[1]).join(', ')})`;
-  if(l.errors.length)s+=` · ${l.errors.length} error(es): ${l.errors[0]}`;
-  return s;
+let lastSync=null;
+const fmtWhen=s=>new Date(s).toLocaleString('es-MX',{dateStyle:'medium',timeStyle:'short'});
+function renderSync(st){
+  const dot=$('#syncdot'),txt=$('#syncst');lastSync=st;
+  if(st.running){dot.className='dot run';txt.textContent=`${st.phase}${st.total?` · ${st.done} de ${st.total}`:''}`;txt.title=st.current||'';}
+  else if(!st.last){dot.className='dot';txt.textContent='Aún no se ha revisado GitHub';}
+  else{const l=st.last;dot.className='dot'+(l.errors.length?' err':'');
+    txt.textContent=`Revisado ${fmtWhen(l.finished_at||l.started_at)} · ${l.new_repos.length} repos nuevos · ${l.new_commits.toLocaleString('es-MX')} commits nuevos${l.errors.length?` · ${l.errors.length} con error`:''}`;txt.title='';}
+  if(!$('#syncpanel').hidden)renderSyncPanel();
 }
+function renderSyncPanel(){
+  const st=lastSync,p=$('#syncpanel');if(!st)return;
+  if(st.running){p.innerHTML=`<h4>Revisando GitHub</h4><dl><dt>Paso</dt><dd>${esc(st.phase)}</dd><dt>Avance</dt><dd>${st.done} de ${st.total||'?'}</dd><dt>Repo</dt><dd>${esc(st.current||'…')}</dd></dl>`;return}
+  const l=st.last;if(!l){p.innerHTML='<p class="note">Pulsa “Buscar repos y commits nuevos” para la primera revisión.</p>';return}
+  const first=l.new_repos.length&&l.new_repos.length===l.repos_total;
+  p.innerHTML=`<h4>Última revisión</h4>
+  <dl><dt>Terminó</dt><dd>${fmtWhen(l.finished_at||l.started_at)}</dd><dt>Repos en GitHub</dt><dd>${l.repos_total??'?'}</dd><dt>Repos revisados</dt><dd>${l.repos_fetched}${l.forced?' (revisión completa)':''}</dd><dt>Commits nuevos</dt><dd>${l.new_commits.toLocaleString('es-MX')}</dd></dl>
+  ${l.new_repos.length?`<div><h4>${first?'Repos encontrados (primera revisión)':'Repos nuevos'} · ${l.new_repos.length}</h4><ul>${l.new_repos.map(n=>`<li>${esc(n.split('/')[1])}</li>`).join('')}</ul></div>`:''}
+  ${l.errors.length?`<div><h4>Errores</h4><ul class="err">${l.errors.map(e=>`<li>${esc(e)}</li>`).join('')}</ul></div>`:''}`;
+}
+function toggleSyncPanel(open){const p=$('#syncpanel');open=open??p.hidden;p.hidden=!open;$('#syncmore').setAttribute('aria-expanded',String(open));if(open)renderSyncPanel()}
+$('#syncmore').onclick=e=>{e.stopPropagation();toggleSyncPanel()};
 async function pollSync(){
-  const st=await api('/api/sync');$('#syncst').textContent=describeSync(st);
+  const st=await api('/api/sync');renderSync(st);
   $('#sync').disabled=$('#syncforce').disabled=st.running;
   if(st.running){if(!polling)polling=setInterval(pollSync,1500)}
   else if(polling){clearInterval(polling);polling=null;detailCache={};await loadMatrix();fillSummaryFilters();if(!$('#v-resumen').hidden)runSummary()}
@@ -315,7 +375,7 @@ $('#sort').onchange=e=>{state.sort=e.target.value;save();renderTable()};
 $('#fclient').onchange=e=>{state.fclient=e.target.value;save();renderTable()};
 $('#ftag').onchange=e=>{state.ftag=e.target.value;save();renderTable()};
 $('#bots').onchange=async e=>{state.bots=e.target.checked;save();await loadMatrix()};
-$('#t').onclick=e=>{const b=e.target.closest('button[data-r]');if(!b)return;const id=+b.dataset.r;state.sel=state.sel===id?null:id;save();renderTable();renderDetail();if(state.sel)$('#detail').scrollIntoView({behavior:'smooth'})};
+$('#t').onclick=e=>{const b=e.target.closest('button[data-r]');if(!b)return;const id=+b.dataset.r;if(popRepo===id){closePop();return}openPop(id,b)};
 
 (async()=>{
   const now=new Date();$('#s-to').value=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;$('#s-from').value=$('#s-to').value;
