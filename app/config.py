@@ -7,6 +7,16 @@ def _list(name: str, default: str = "") -> list[str]:
     return [x.strip() for x in os.getenv(name, default).split(",") if x.strip()]
 
 
+def _clean_url(raw: str) -> str:
+    """Tolera errores comunes al pegar la variable: espacios, comillas o el prefijo DATABASE_URL=."""
+    v = raw.strip()
+    if v.upper().startswith("DATABASE_URL="):
+        v = v.split("=", 1)[1].strip()
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in "'\"":
+        v = v[1:-1].strip()
+    return v
+
+
 def _bool(name: str, default: bool) -> bool:
     raw = os.getenv(name)
     if raw is None:
@@ -16,14 +26,14 @@ def _bool(name: str, default: bool) -> bool:
 
 @dataclass(frozen=True)
 class Settings:
-    database_url: str = field(default_factory=lambda: os.getenv("DATABASE_URL", ""))
+    database_url: str = field(default_factory=lambda: _clean_url(os.getenv("DATABASE_URL", "")))
     github_token: str = field(default_factory=lambda: os.getenv("GITHUB_TOKEN", "").strip())
     # Contraseña para entrar a la página web.
     app_password: str = field(default_factory=lambda: os.getenv("APP_PASSWORD", ""))
     # Firma las cookies de sesión.
-    session_secret: str = field(default_factory=lambda: os.getenv("SESSION_SECRET", ""))
+    session_secret: str = field(default_factory=lambda: os.getenv("SESSION_SECRET", "").strip())
     # El endpoint MCP vive en /mcp/<MCP_SECRET>; la URL completa es la credencial.
-    mcp_secret: str = field(default_factory=lambda: os.getenv("MCP_SECRET", ""))
+    mcp_secret: str = field(default_factory=lambda: os.getenv("MCP_SECRET", "").strip())
     since: str = field(default_factory=lambda: os.getenv("SINCE", "2025-01-01"))
     timezone: str = field(default_factory=lambda: os.getenv("TIMEZONE", "America/Mexico_City"))
     bot_authors: list[str] = field(default_factory=lambda: _list(

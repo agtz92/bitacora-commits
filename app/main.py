@@ -92,7 +92,30 @@ def healthz():
             conn.execute("select 1 from bitacora.repos limit 1")
         return {"ok": True, "db": "ok"}
     except Exception as e:  # noqa: BLE001
-        return JSONResponse({"ok": False, "db": type(e).__name__}, status_code=503)
+        url = settings.database_url
+        info = {"ok": False, "db": type(e).__name__,
+                # Pistas sin exponer la contraseña:
+                "url_set": bool(url),
+                "url_scheme_ok": url.startswith(("postgresql://", "postgres://")),
+                "url_has_spaces": any(ch.isspace() for ch in url),
+                "url_port": url.rsplit(":", 1)[-1].split("/")[0] if "@" in url else None,
+                "hint": _db_hint(e)}
+        return JSONResponse(info, status_code=503)
+
+
+def _db_hint(e: Exception) -> str:
+    msg = str(e).lower()
+    if "invalid dsn" in msg or "invalid connection option" in msg or "missing" in msg and "=" in msg:
+        return "DATABASE_URL no tiene el formato postgresql://usuario:contraseña@host:6543/postgres"
+    if "password authentication failed" in msg:
+        return "Usuario o contraseña incorrectos"
+    if "tenant or user not found" in msg:
+        return "El host del pooler no corresponde al proyecto (prueba aws-0 en lugar de aws-1)"
+    if "does not exist" in msg:
+        return "Falta crear el schema o las tablas"
+    if "permission denied" in msg:
+        return "El usuario no tiene permisos sobre el schema bitacora"
+    return type(e).__name__
 
 
 @app.get("/")
