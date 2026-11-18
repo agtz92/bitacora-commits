@@ -19,7 +19,8 @@ app = FastAPI(title="Bitácora de commits", docs_url=None, redoc_url=None, opena
 
 COOKIE = "bitacora_session"
 SESSION_DAYS = 30
-OPEN_PATHS = {"/", "/index.html", "/healthz", "/api/login", "/api/session", "/favicon.ico"}
+# Solo /api/* requiere sesión; /mcp/<secreto> se valida aparte y lo demás responde 404 normal.
+OPEN_API = {"/api/login", "/api/logout", "/api/session"}
 
 
 # ---- sesión ---------------------------------------------------------------
@@ -43,8 +44,8 @@ def _valid_session(token: str | None) -> bool:
 
 @app.middleware("http")
 async def require_login(request: Request, call_next):
-    path = request.url.path
-    if path in OPEN_PATHS or path.startswith("/mcp/"):
+    path = request.url.path.rstrip("/") or "/"
+    if not path.startswith("/api/") or path in OPEN_API:
         return await call_next(request)
     if not _valid_session(request.cookies.get(COOKIE)):
         return JSONResponse({"detail": "Inicia sesión"}, status_code=401)
@@ -79,7 +80,9 @@ def logout():
 
 @app.get("/api/session")
 def session_state(request: Request):
-    return {"authenticated": _valid_session(request.cookies.get(COOKIE))}
+    return {"authenticated": _valid_session(request.cookies.get(COOKIE)),
+            "configured": bool(settings.app_password and settings.session_secret),
+            "cookie_received": COOKIE in request.cookies}
 
 
 @app.get("/healthz")
