@@ -55,6 +55,19 @@ header{align-items:center}
 .pop .opts button.tagx{font-family:var(--mono);font-size:.75rem}
 .pop .add{display:flex;gap:6px;margin-top:8px}
 .pop .add input{flex:1;font-size:.85rem;padding:5px 8px}
+.pop .projrow{display:grid;grid-template-columns:auto 1fr;gap:6px 8px;align-items:center;margin-top:8px;font-size:.8rem}
+.pop .projrow label{color:var(--muted);white-space:nowrap}
+.pop .projrow input{font-size:.85rem;padding:5px 8px;min-width:0}
+.chip .proj{font-weight:400;opacity:.85}
+tr.grp td{background:var(--bg);font-family:var(--display);font-weight:700;font-size:.9rem;padding:10px 10px 6px;border-top:1px solid var(--line)}
+tr.grp td.name{background:var(--bg)}
+tr.grp td .n{font-family:var(--mono);font-weight:400;font-size:.75rem;color:var(--muted);margin-left:8px}
+.sproj{border-top:2px solid var(--accent);padding-top:12px;display:flex;flex-direction:column;gap:8px}
+.sproj h3{font-family:var(--display);font-size:1.05rem;margin:0;display:flex;flex-wrap:wrap;gap:8px;align-items:baseline}
+.sproj h3 .n{font-family:var(--mono);font-size:.8rem;color:var(--muted);font-weight:400}
+.sproj .repos{font-size:.82rem;color:var(--muted)}
+.sproj .sline .shas a{white-space:nowrap}
+.sproj .sline .shas .rp{font-size:.72rem;color:var(--muted)}
 .pop .foot{display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--line);padding-top:10px}
 .pop .msg{font-size:.78rem;color:var(--muted)}
 .stats{display:flex;flex-wrap:wrap;gap:24px;font-family:var(--mono);font-size:.85rem;color:var(--muted)}
@@ -156,9 +169,11 @@ footer{display:flex;flex-wrap:wrap;gap:14px;align-items:center;justify-content:f
     <div class="controls">
       <input type="search" id="q" placeholder="Filtrar repositorio…" aria-label="Filtrar repositorio">
       <select id="fclient" aria-label="Filtrar por cliente"></select>
+      <select id="fproject" aria-label="Filtrar por proyecto" hidden></select>
       <select id="ftag" aria-label="Filtrar por etiqueta"></select>
       <select id="sort" aria-label="Ordenar">
         <option value="created">Ordenar por fecha de creación</option>
+        <option value="project">Agrupar por proyecto</option>
         <option value="client">Agrupar por cliente</option>
         <option value="total">Ordenar por número de commits</option>
         <option value="recent">Ordenar por último commit</option>
@@ -173,11 +188,12 @@ footer{display:flex;flex-wrap:wrap;gap:14px;align-items:center;justify-content:f
 
   <section id="v-resumen" class="wrap" style="gap:20px" hidden>
     <div class="panel">
-      <h2>Resumen por repositorio y mes</h2>
+      <h2>Resumen por proyecto, repositorio y mes</h2>
       <form class="sform" id="sform">
         <label>Desde<input type="month" id="s-from"></label>
         <label>Hasta<input type="month" id="s-to"></label>
         <label>Cliente<select id="s-client"></select></label>
+        <label id="s-project-l" hidden>Proyecto<select id="s-project"></select></label>
         <label>Etiqueta<select id="s-tag"></select></label>
         <label>Repositorio<select id="s-repo"></select></label>
         <label class="chk" style="text-transform:none;letter-spacing:0;font-size:.9rem;flex-direction:row"><input type="checkbox" id="s-bots"> Incluir bots</label>
@@ -199,7 +215,7 @@ footer{display:flex;flex-wrap:wrap;gap:14px;align-items:center;justify-content:f
     <span class="msg" id="footmsg"></span>
   </footer>
 </div>
-<datalist id="clients"></datalist><datalist id="tagopts"></datalist>
+<datalist id="clients"></datalist><datalist id="projopts"></datalist><datalist id="tagopts"></datalist>
 <script>
 const MN=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
 const BASE_CLIENTS=['Hulempak','HEQ','PHASA','DRR','Personal'];
@@ -208,7 +224,7 @@ const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&g
 const fmtM=k=>{const[y,m]=k.split('-');return MN[+m-1]+' '+y};
 const fmtD=d=>{if(!d)return '';const[y,m,dd]=d.split('-');return `${+dd} ${MN[+m-1]} ${y}`};
 const hue=s=>{let h=0;for(const ch of s.toLowerCase())h=(h*31+ch.charCodeAt(0))%360;return h};
-const chip=c=>`<span class="chip" style="--h:${hue(c)}">${esc(c)}</span>`;
+const chip=(c,p)=>`<span class="chip" style="--h:${hue(c)}">${esc(c)}${p?`<span class="proj"> · ${esc(p)}</span>`:''}</span>`;
 const parseList=(s,lower)=>[...new Set(s.split(',').map(t=>lower?t.trim().toLowerCase():t.trim()).filter(Boolean))];
 class AuthError extends Error{}
 const api=async(url,opt)=>{const r=await fetch(url,{credentials:'same-origin',...opt});
@@ -216,13 +232,15 @@ const api=async(url,opt)=>{const r=await fetch(url,{credentials:'same-origin',..
   if(!r.ok){let m;try{m=(await r.json()).detail}catch(e){}throw new Error(m||('Error '+r.status))}return r.json()};
 function showLogin(){$('#login').hidden=false;$('#app').hidden=true;$('#pw').focus()}
 
-let state={q:'',sort:'created',bots:false,sel:null,fclient:'',ftag:''};
+let state={q:'',sort:'created',bots:false,sel:null,fclient:'',ftag:'',fproject:''};
 try{Object.assign(state,JSON.parse(localStorage.getItem('bitacora')||'{}'));state.q='';}catch(e){}
-const save=()=>{try{localStorage.setItem('bitacora',JSON.stringify({sort:state.sort,bots:state.bots,fclient:state.fclient,ftag:state.ftag,sel:state.sel}))}catch(e){}};
+const save=()=>{try{localStorage.setItem('bitacora',JSON.stringify({sort:state.sort,bots:state.bots,fclient:state.fclient,ftag:state.ftag,fproject:state.fproject,sel:state.sel}))}catch(e){}};
 let M={months:[],repos:[]};
 
 function allClients(){return [...new Set([...BASE_CLIENTS,...M.repos.flatMap(r=>r.clients)])]}
 function allTags(){return [...new Set(M.repos.flatMap(r=>r.tags))].sort()}
+function projOf(r,c){if(!c)return '';const k=Object.keys(r.projects||{}).find(x=>x.toLowerCase()===c.toLowerCase());return k?r.projects[k]:''}
+function projectsOf(c){return [...new Set(M.repos.map(r=>projOf(r,c)).filter(Boolean))].sort((a,b)=>a.localeCompare(b))}
 function level(n){return n===0?0:n<=2?1:n<=6?2:n<=15?3:n<=40?4:5}
 function fillSelect(el,allLabel,items,val){el.innerHTML=`<option value="">${allLabel}</option>${items.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('')}<option value="__none">Sin asignar</option>`;el.value=[...el.options].some(o=>o.value===val)?val:''}
 
@@ -232,6 +250,9 @@ function renderTable(){
   $('#q').value=state.q;$('#sort').value=state.sort;$('#bots').checked=state.bots;
   fillSelect($('#fclient'),'Todos los clientes',allClients(),state.fclient);state.fclient=$('#fclient').value;
   fillSelect($('#ftag'),'Todas las etiquetas',allTags(),state.ftag);state.ftag=$('#ftag').value;
+  const fc=state.fclient&&state.fclient!=='__none'?state.fclient:'';
+  $('#fproject').hidden=!fc;
+  if(fc){fillSelect($('#fproject'),'Todos los proyectos',projectsOf(fc),state.fproject);state.fproject=$('#fproject').value}else state.fproject='';
   $('#clients').innerHTML=allClients().map(c=>`<option value="${esc(c)}">`).join('');$('#tagopts').innerHTML=allTags().map(c=>`<option value="${esc(c)}">`).join('');
   let rows=M.repos.filter(r=>{
     if(!r.name.toLowerCase().includes(state.q.toLowerCase()))return false;
@@ -239,9 +260,15 @@ function renderTable(){
     if(state.fclient&&state.fclient!=='__none'&&!r.clients.includes(state.fclient))return false;
     if(state.ftag==='__none'&&r.tags.length)return false;
     if(state.ftag&&state.ftag!=='__none'&&!r.tags.includes(state.ftag))return false;
+    if(fc&&state.fproject==='__none'&&projOf(r,fc))return false;
+    if(fc&&state.fproject&&state.fproject!=='__none'&&projOf(r,fc)!==state.fproject)return false;
     return true});
   const s=state.sort;
-  rows.sort((a,b)=>s==='total'?b.total-a.total:s==='recent'?b.last.localeCompare(a.last):s==='name'?a.name.localeCompare(b.name)
+  // Agrupar por proyecto: del cliente filtrado o, si no hay, del primer cliente de cada repo.
+  const gkey=r=>{const c=fc||r.clients[0]||'';const p=projOf(r,c);return c?(p?`${fc?'':c+' · '}${p}`:`${fc?'':c+' · '}Sin proyecto asignado`):'Sin cliente'};
+  const gTot={};if(s==='project')for(const r of rows){const k=gkey(r);gTot[k]=(gTot[k]||0)+r.total}
+  rows.sort((a,b)=>s==='project'?((gkey(a).includes('Sin ')-gkey(b).includes('Sin '))||gTot[gkey(b)]-gTot[gkey(a)]||gkey(a).localeCompare(gkey(b))||b.total-a.total)
+    :s==='total'?b.total-a.total:s==='recent'?b.last.localeCompare(a.last):s==='name'?a.name.localeCompare(b.name)
     :s==='client'?((a.clients[0]||'~').localeCompare(b.clients[0]||'~')||a.created.localeCompare(b.created))
     :a.created.localeCompare(b.created)||a.name.localeCompare(b.name));
   const months=M.months;const years={};months.forEach(k=>{const y=k.slice(0,4);years[y]=(years[y]||0)+1});
@@ -252,9 +279,12 @@ function renderTable(){
   months.forEach(k=>h+=`<th class="${k.endsWith('-01')?'yearsep':''}">${MN[+k.slice(5)-1]}</th>`);
   h+='<th style="padding:0 12px">Total</th></tr></thead><tbody>';
   const colTot=Object.fromEntries(months.map(k=>[k,0]));
+  let curG=null;
   for(const r of rows){
+    if(s==='project'&&gkey(r)!==curG){curG=gkey(r);const n=rows.filter(x=>gkey(x)===curG);
+      h+=`<tr class="grp"><td class="name">${esc(curG)}<span class="n">${n.length} repo${n.length===1?'':'s'} · ${gTot[curG].toLocaleString('es-MX')} commits</span></td><td colspan="${months.length+1}"></td></tr>`}
     const ck=r.created.slice(0,7);
-    const chips=(r.clients.length?r.clients.map(chip).join(''):'<span class="chip none">sin cliente</span>')+r.tags.map(t=>`<span class="chip tag">${esc(t)}</span>`).join('');
+    const chips=(r.clients.length?r.clients.map(c=>chip(c,projOf(r,c))).join(''):'<span class="chip none">sin cliente</span>')+r.tags.map(t=>`<span class="chip tag">${esc(t)}</span>`).join('');
     h+=`<tr class="${state.sel===r.id?'sel':''}"><td class="name"><button class="rn" data-r="${r.id}" aria-haspopup="dialog" aria-expanded="${popRepo===r.id}">${esc(r.name)}</button><small>${esc(r.owner)} · creado ${fmtD(r.created)}${r.error?' · ⚠ error al sincronizar':''}</small><div class="tags">${chips}</div></td>`;
     months.forEach(k=>{const n=r.months[k]||0;colTot[k]+=n;const lv=level(n);const pre=k<ck&&!n;
       const st=lv?`background:var(--h${lv});color:${lv>=4?'var(--hfg)':'var(--fg)'}`:'';
@@ -266,7 +296,7 @@ function renderTable(){
   h+=`<td class="tot">${rows.reduce((a,r)=>a+r.total,0)}</td></tr></tfoot>`;
   $('#t').innerHTML=h;
   const tot=rows.reduce((a,r)=>a+r.total,0);
-  $('#stats').innerHTML=`<div><b>${rows.length}</b>repositorios</div><div><b>${tot.toLocaleString('es-MX')}</b>commits</div><div><b>${months.filter(k=>colTot[k]).length} de ${months.length}</b>meses con actividad</div><div><b>${rows.filter(r=>!r.clients.length).length}</b>sin cliente</div><div><b>${fmtD(M.last_commit)}</b>último commit</div>`;
+  $('#stats').innerHTML=`<div><b>${rows.length}</b>repositorios</div><div><b>${tot.toLocaleString('es-MX')}</b>commits</div><div><b>${months.filter(k=>colTot[k]).length} de ${months.length}</b>meses con actividad</div><div><b>${rows.filter(r=>!r.clients.length).length}</b>sin cliente</div>${fc?`<div><b>${rows.filter(r=>!projOf(r,fc)).length}</b>sin proyecto para ${esc(fc)}</div>`:''}<div><b>${fmtD(M.last_commit)}</b>último commit</div>`;
 }
 
 let detailCache={};
@@ -300,26 +330,31 @@ function openPop(id,anchor){
   const clients=[...new Set([...allClients(),...r.clients])];
   pop.innerHTML=`<div class="ph"><b>${esc(r.name)}</b><a class="sha" href="${esc(r.url)}" target="_blank" rel="noopener">GitHub ↗</a></div>
   <div><div class="lbl">Clientes</div><div class="opts" id="p-clients">${clients.map(c=>`<button type="button" data-c="${esc(c)}" aria-pressed="${r.clients.includes(c)}">${r.clients.includes(c)?'✓ ':''}${esc(c)}</button>`).join('')}</div>
-    <form class="add" id="p-addc"><input type="text" id="p-newc" placeholder="Otro cliente…" list="clients" aria-label="Agregar otro cliente"><button class="btn" type="submit">Agregar</button></form></div>
+    <form class="add" id="p-addc"><input type="text" id="p-newc" placeholder="Otro cliente…" list="clients" aria-label="Agregar otro cliente"><button class="btn" type="submit">Agregar</button></form>
+    ${r.clients.length?`<div class="lbl" style="margin-top:12px">Proyecto para cada cliente</div><div class="projrow">${r.clients.map((c,i)=>`<label for="p-proj-${i}">${esc(c)}</label><input type="text" id="p-proj-${i}" data-pc="${esc(c)}" value="${esc(projOf(r,c))}" placeholder="Nombre del proyecto…" list="projopts" aria-label="Proyecto para ${esc(c)}">`).join('')}</div>`:''}</div>
   <div><div class="lbl">Etiquetas</div><div class="opts" id="p-tags">${r.tags.length?r.tags.map(t=>`<button type="button" class="tagx" data-t="${esc(t)}" aria-pressed="true" title="Quitar etiqueta">${esc(t)} ×</button>`).join(''):'<span class="note">Sin etiquetas</span>'}</div>
     <form class="add" id="p-addt"><input type="text" id="p-newt" placeholder="backlinks, seo…" list="tagopts" aria-label="Agregar etiquetas"><button class="btn" type="submit">Agregar</button></form>
     <div class="opts" style="margin-top:6px">${allTags().filter(t=>!r.tags.includes(t)).map(t=>`<button type="button" class="tagx" data-addt="${esc(t)}">+ ${esc(t)}</button>`).join('')}</div></div>
   <div class="foot"><button class="linkbtn" id="p-commits">Ver commits por día</button><span class="msg" id="p-msg"></span></div>`;
   pop.hidden=false;placePop(anchor);
   pop.querySelectorAll('[data-c]').forEach(b=>b.onclick=()=>{const c=b.dataset.c;saveMeta(r,{clients:r.clients.includes(c)?r.clients.filter(x=>x!==c):[...r.clients,c]})});
+  pop.querySelectorAll('[data-pc]').forEach(inp=>{
+    inp.onfocus=()=>{$('#projopts').innerHTML=projectsOf(inp.dataset.pc).map(p=>`<option value="${esc(p)}">`).join('')};
+    const commit=()=>{const v=inp.value.trim();if(v===projOf(r,inp.dataset.pc))return;saveMeta(r,{projects:{...r.projects,[inp.dataset.pc]:v}},inp.id)};
+    inp.onchange=commit;inp.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();commit()}}});
   pop.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>saveMeta(r,{tags:r.tags.filter(x=>x!==b.dataset.t)}));
   pop.querySelectorAll('[data-addt]').forEach(b=>b.onclick=()=>saveMeta(r,{tags:[...r.tags,b.dataset.addt]}));
   $('#p-addc').onsubmit=e=>{e.preventDefault();const v=parseList($('#p-newc').value);if(v.length)saveMeta(r,{clients:[...r.clients,...v]})};
   $('#p-addt').onsubmit=e=>{e.preventDefault();const v=parseList($('#p-newt').value,true);if(v.length)saveMeta(r,{tags:[...r.tags,...v]})};
   $('#p-commits').onclick=()=>{state.sel=r.id;save();closePop();renderTable();renderDetail();$('#detail').scrollIntoView({behavior:'smooth'})};
 }
-async function saveMeta(r,patch){
-  const body={clients:patch.clients??r.clients,tags:patch.tags??r.tags};
+async function saveMeta(r,patch,focusId){
+  const body={clients:patch.clients??r.clients,tags:patch.tags??r.tags,projects:patch.projects??r.projects??{}};
   const msg=$('#p-msg');if(msg)msg.textContent='Guardando…';
   try{const res=await api(`/api/repos/${r.id}/meta`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-    r.clients=res.clients;r.tags=res.tags;renderTable();fillSummaryFilters();
+    r.clients=res.clients;r.tags=res.tags;r.projects=res.projects||{};renderTable();fillSummaryFilters();
     const anchor=document.querySelector(`button[data-r="${r.id}"]`);
-    if(anchor&&popRepo===r.id){openPop(r.id,anchor);$('#p-msg').textContent='Guardado';$('#p-msg').className='msg ok'}
+    if(anchor&&popRepo===r.id){openPop(r.id,anchor);$('#p-msg').textContent='Guardado';$('#p-msg').className='msg ok';if(focusId)$('#'+focusId)?.focus()}
     if(state.sel===r.id)renderDetail()}
   catch(e){if(msg){msg.textContent='No se pudo guardar';msg.className='msg err'}}
 }
@@ -377,22 +412,31 @@ function fillSummaryFilters(){
   const keep=id=>$(id).value;
   const c=keep('#s-client'),t=keep('#s-tag'),r=keep('#s-repo');
   fillSelect($('#s-client'),'Todos',allClients(),c);fillSelect($('#s-tag'),'Todas',allTags(),t);
+  const sc=$('#s-client').value,pv=keep('#s-project');const hasC=sc&&sc!=='__none';$('#s-project-l').hidden=!hasC;
+  if(hasC)fillSelect($('#s-project'),'Todos',projectsOf(sc),pv);else $('#s-project').innerHTML='<option value=""></option>';
   $('#s-repo').innerHTML=`<option value="">Todos</option>${[...M.repos].sort((a,b)=>a.name.localeCompare(b.name)).map(x=>`<option value="${esc(x.full_name)}">${esc(x.name)}</option>`).join('')}`;$('#s-repo').value=r;
 }
 function summaryParams(){const p=new URLSearchParams();const v=(k,id)=>{const x=$(id).value;if(x)p.set(k,x)};
-  v('month_from','#s-from');v('month_to','#s-to');v('client','#s-client');v('tag','#s-tag');v('repo','#s-repo');p.set('bots',$('#s-bots').checked);return p}
+  v('month_from','#s-from');v('month_to','#s-to');v('client','#s-client');if(!$('#s-project-l').hidden)v('project','#s-project');v('tag','#s-tag');v('repo','#s-repo');p.set('bots',$('#s-bots').checked);return p}
 async function runSummary(){
   const p=summaryParams();$('#s-md').href='/api/summary?'+p+'&format=md';$('#s-csv').href='/api/summary?'+p+'&format=csv';
   const d=await api('/api/summary?'+p);const out=$('#sout');
   if(!d.repos.length){out.innerHTML='<p class="empty">No hay commits con esos filtros.</p>';return}
-  let h=`<div class="dhead"><h2>${d.total.toLocaleString('es-MX')} commits en ${d.repos.length} repositorios</h2></div><div class="bymonth">${Object.entries(d.by_month).map(([k,n])=>`<span>${fmtM(k)} · ${n}</span>`).join('')}</div>`;
+  let h=`<div class="dhead"><h2>${d.total.toLocaleString('es-MX')} commits en ${d.repos.length} repositorios${d.projects.length?` y ${d.projects.length} proyectos`:''}</h2></div><div class="bymonth">${Object.entries(d.by_month).map(([k,n])=>`<span>${fmtM(k)} · ${n}</span>`).join('')}</div>`;
+  if(d.projects.length){
+    for(const g of d.projects){
+      h+=`<div class="sproj"><h3>${esc(g.project)} <span class="n">${g.total.toLocaleString('es-MX')} commit${g.total===1?'':'s'} · ${g.first===g.last?fmtM(g.first):fmtM(g.first)+' a '+fmtM(g.last)}</span></h3><div class="repos">Repositorios: ${g.repos.map(x=>esc(x.split('/')[1])).join(', ')}</div>`;
+      for(const m of g.months){const byR={};for(const c of m.commits)(byR[c.repo]??=[]).push(c);
+        h+=`<div class="sline"><div class="lbl"><b>${m.count}</b> commit${m.count===1?'':'s'} en ${esc(m.label)}</div><div class="shas">${Object.entries(byR).map(([rp,cs])=>`<span class="rp">${esc(rp)}:</span> ${cs.map(c=>`<a class="sha" href="${esc(c.url)}" target="_blank" rel="noopener" title="${esc(c.date+' '+c.time+' · '+c.message)}">${c.short}</a>`).join(' ')}`).join(' ')}</div></div>`}
+      h+='</div>'}
+    out.innerHTML=h;return}
   for(const r of d.repos){
-    h+=`<div class="srepo"><h3>${esc(r.full_name)} <span class="n">${r.total} commits</span>${r.clients.map(chip).join('')}${r.tags.map(t=>`<span class="chip tag">${esc(t)}</span>`).join('')}</h3>`;
+    h+=`<div class="srepo"><h3>${esc(r.full_name)} <span class="n">${r.total} commits</span>${r.clients.map(c=>chip(c,projOf(r,c))).join('')}${r.tags.map(t=>`<span class="chip tag">${esc(t)}</span>`).join('')}</h3>`;
     for(const m of r.months)h+=`<div class="sline"><div class="lbl"><b>${m.count}</b> commit${m.count===1?'':'s'} en ${esc(m.label)}</div><div class="shas">${m.commits.map(c=>`<a class="sha" href="${esc(c.url)}" target="_blank" rel="noopener" title="${esc(c.date+' '+c.time+' · '+c.message)}">${c.short}</a>`).join('')}</div></div>`;
     h+='</div>'}
   out.innerHTML=h;
 }
-$('#sform').oninput=()=>runSummary();
+$('#sform').oninput=e=>{if(e.target.id==='s-client')fillSummaryFilters();runSummary()};
 $('#s-copy').onclick=async()=>{const t=await (await fetch('/api/summary?'+summaryParams()+'&format=mdtext')).text();
   try{await navigator.clipboard.writeText(t);$('#s-msg').textContent='Copiado';$('#s-msg').className='msg ok'}catch(e){$('#s-msg').textContent='No se pudo copiar; usa Descargar Markdown';$('#s-msg').className='msg err'}};
 
@@ -406,6 +450,7 @@ $('#q').oninput=e=>{state.q=e.target.value;renderTable()};
 $('#sort').onchange=e=>{state.sort=e.target.value;save();renderTable()};
 $('#fclient').onchange=e=>{state.fclient=e.target.value;save();renderTable()};
 $('#ftag').onchange=e=>{state.ftag=e.target.value;save();renderTable()};
+$('#fproject').onchange=e=>{state.fproject=e.target.value;save();renderTable()};
 $('#bots').onchange=async e=>{state.bots=e.target.checked;save();await loadMatrix()};
 $('#t').onclick=e=>{const b=e.target.closest('button[data-r]');if(!b)return;const id=+b.dataset.r;if(popRepo===id){closePop();return}openPop(id,b)};
 

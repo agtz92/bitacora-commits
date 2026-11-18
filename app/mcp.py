@@ -8,8 +8,11 @@ PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"]
 
 INSTRUCTIONS = (
     "Bitácora de commits de GitHub de Alfredo (cuenta agtz92), desde 2025, con hora de Ciudad de México. "
-    "Cada repositorio puede tener varios clientes (Hulempak, HEQ, PHASA, DRR, Personal, …) y etiquetas. "
-    "Usa resumen_commits para materialidad: devuelve, por repo y mes, cuántos commits hubo y sus SHAs. "
+    "Cada repositorio puede tener varios clientes (Hulempak, HEQ, PHASA, DRR, Personal, …) y etiquetas, y para "
+    "cada cliente un proyecto: el nombre con que ese cliente reconoce el trabajo (varios repos pueden formar un "
+    "proyecto, y un repo puede llamarse distinto para cada cliente). "
+    "Usa resumen_commits para materialidad: con cliente, agrupa por proyecto y mes con los SHAs y el repo de cada "
+    "commit. "
     "Los commits de bots se excluyen salvo que se pida. Meses en formato YYYY-MM. "
     "Si los datos parecen desactualizados, llama a sincronizar_github (puede requerir varias llamadas)."
 )
@@ -19,11 +22,14 @@ _month = {"type": "string", "description": "Mes en formato YYYY-MM", "pattern": 
 TOOLS = [
     {
         "name": "resumen_commits",
-        "description": "Resumen por repositorio y mes: número de commits y SHAs (con fecha y hora; mensajes opcionales). "
-                       "Filtra por rango de meses, cliente, etiqueta o repositorio. Ideal para evidencia de trabajo.",
+        "description": "Resumen de commits con SHAs (fecha, hora y mensaje opcional). Con cliente: por proyecto y mes, "
+                       "indicando el repo de cada commit; sin cliente: por repositorio y mes. Filtra por rango de meses, "
+                       "cliente, proyecto, etiqueta o repositorio. Ideal para evidencia de trabajo.",
         "inputSchema": {"type": "object", "properties": {
             "mes_desde": _month, "mes_hasta": _month,
-            "cliente": {"type": "string", "description": "Cliente exacto (ej. Hulempak). '__none' = sin cliente."},
+            "cliente": {"type": "string", "description": "Cliente exacto (ej. Hulempak). '__none' = sin cliente. "
+                                                         "Con cliente, el resultado se agrupa por proyecto."},
+            "proyecto": {"type": "string", "description": "Proyecto del cliente (requiere cliente). '__none' = sin proyecto."},
             "etiqueta": {"type": "string", "description": "Etiqueta (ej. seo). '__none' = sin etiqueta."},
             "repositorio": {"type": "string", "description": "Nombre o owner/nombre"},
             "incluir_bots": {"type": "boolean", "default": False},
@@ -34,17 +40,18 @@ TOOLS = [
     },
     {
         "name": "matriz_mensual",
-        "description": "Número de commits por repositorio y mes (sin SHAs). Útil para ver en qué meses hubo actividad.",
+        "description": "Número de commits por mes (sin SHAs), por proyecto si se da cliente o por repositorio si no.",
         "inputSchema": {"type": "object", "properties": {
             "mes_desde": _month, "mes_hasta": _month,
-            "cliente": {"type": "string"}, "etiqueta": {"type": "string"},
+            "cliente": {"type": "string"}, "proyecto": {"type": "string"}, "etiqueta": {"type": "string"},
             "incluir_bots": {"type": "boolean", "default": False},
         }},
         "annotations": {"readOnlyHint": True},
     },
     {
         "name": "listar_repositorios",
-        "description": "Repositorios con sus clientes, etiquetas, total de commits y primer/último commit. "
+        "description": "Repositorios con sus clientes (y proyecto de cada cliente), etiquetas, total de commits y "
+                       "primer/último commit. "
                        "Filtra por texto, cliente o etiqueta.",
         "inputSchema": {"type": "object", "properties": {
             "buscar": {"type": "string", "description": "Texto contenido en el nombre"},
@@ -64,7 +71,7 @@ TOOLS = [
     },
     {
         "name": "clientes_y_etiquetas",
-        "description": "Clientes y etiquetas existentes, con cuántos repositorios tiene cada uno.",
+        "description": "Clientes con sus proyectos (y repos de cada uno) y etiquetas existentes.",
         "inputSchema": {"type": "object", "properties": {}},
         "annotations": {"readOnlyHint": True},
     },
@@ -81,6 +88,18 @@ TOOLS = [
         "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True},
     },
     {
+        "name": "asignar_proyecto",
+        "description": "Asigna a uno o varios repositorios el proyecto con que un cliente los reconoce "
+                       "(ej. backend_ y frontend_website_cms_generator → «Generador de sitios web» para Hulempak). "
+                       "Si el cliente no estaba asignado al repo, se agrega. proyecto vacío quita el proyecto.",
+        "inputSchema": {"type": "object", "required": ["repositorios", "cliente", "proyecto"], "properties": {
+            "repositorios": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+            "cliente": {"type": "string"},
+            "proyecto": {"type": "string"},
+        }},
+        "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True},
+    },
+    {
         "name": "sincronizar_github",
         "description": "Busca repos nuevos en GitHub y descarga commits nuevos. Trabaja ~40 s por llamada; "
                        "si responde que faltan repos, vuelve a llamarla. forzar=true revisa todos los repos.",
@@ -92,7 +111,8 @@ TOOLS = [
 
 def _f(a: dict) -> summary.Filters:
     return summary.Filters(a.get("mes_desde") or None, a.get("mes_hasta") or None, a.get("cliente") or None,
-                           a.get("etiqueta") or None, a.get("repositorio") or None, bool(a.get("incluir_bots")))
+                           a.get("etiqueta") or None, a.get("repositorio") or None, bool(a.get("incluir_bots")),
+                           (a.get("proyecto") or None) if a.get("cliente") else None)
 
 
 def _resumen(a):
@@ -113,6 +133,11 @@ def _matriz(a):
         return "Sin commits con esos filtros."
     lines = [f"Total: {data['total']} commits. Por mes: "
              + ", ".join(f"{k}: {v}" for k, v in data["by_month"].items()), ""]
+    if data["projects"]:
+        for g in data["projects"]:
+            months = ", ".join(f"{m['month']}: {m['count']}" for m in g["months"])
+            lines.append(f"- {g['project']} ({g['total']}; repos: {', '.join(x.split('/')[-1] for x in g['repos'])}): {months}")
+        return "\n".join(lines)
     for r in data["repos"]:
         meta = " | ".join(x for x in [", ".join(r["clients"]), ", ".join(r["tags"])] if x)
         months = ", ".join(f"{m['month']}: {m['count']}" for m in r["months"])
@@ -133,7 +158,7 @@ def _listar(a):
                where not r.gone group by r.id order by lower(r.name)""").fetchall()
     out = []
     for r in rows:
-        m = meta.get(r["id"], {"clients": [], "tags": []})
+        m = meta.get(r["id"], {"clients": [], "tags": [], "projects": {}})
         if q and q not in r["name"].lower():
             continue
         if not a.get("incluir_sin_commits") and not r["total"]:
@@ -144,9 +169,11 @@ def _listar(a):
         if tg == "__none" and m["tags"] or tg and tg != "__none" and tg.lower() not in m["tags"]:
             continue
         span = f" del {r['first']} al {r['last']}" if r["total"] else ""
+        cl_txt = ", ".join(f"{c} (proyecto: {m['projects'][c]})" if c in m["projects"] else c for c in m["clients"])
         out.append(f"- {r['full_name']}{' (privado)' if r['private'] else ''}: {r['total']} commits"
                    f"{span}"
-                   f" · clientes: {', '.join(m['clients']) or '—'} · etiquetas: {', '.join(m['tags']) or '—'}"
+                   f" · clientes: {cl_txt or '—'}"
+                   f" · etiquetas: {', '.join(m['tags']) or '—'}"
                    f"{' · ⚠ ' + r['last_error'] if r['last_error'] else ''}")
     return f"{len(out)} repositorios\n" + "\n".join(out) if out else "Ningún repositorio coincide."
 
@@ -175,9 +202,23 @@ def _opciones(_a):
         none = conn.execute("select count(*) n from bitacora.repos r where not gone and exists "
                             "(select 1 from bitacora.commits c where c.repo_id=r.id) and not exists "
                             "(select 1 from bitacora.repo_clients x where x.repo_id=r.id)").fetchone()["n"]
-    return ("Clientes: " + ", ".join(f"{r['client']} ({r['n']})" for r in cl)
-            + f"\nRepos con commits y sin cliente: {none}"
-            + "\nEtiquetas: " + ", ".join(f"{r['tag']} ({r['n']})" for r in tg))
+        pr = conn.execute(
+            "select rc.client, rc.project, string_agg(r.name, ', ' order by r.name) repos from bitacora.repo_clients rc "
+            "join bitacora.repos r on r.id = rc.repo_id where rc.project is not null and not r.gone "
+            "group by rc.client, rc.project order by rc.client, rc.project").fetchall()
+        sinp = conn.execute(
+            "select rc.client, count(*) n from bitacora.repo_clients rc join bitacora.repos r on r.id = rc.repo_id "
+            "where rc.project is null and not r.gone and exists (select 1 from bitacora.commits c where c.repo_id=r.id) "
+            "group by rc.client").fetchall()
+    sin = {r["client"]: r["n"] for r in sinp}
+    lines = ["Clientes: " + ", ".join(f"{r['client']} ({r['n']} repos)" for r in cl),
+             f"Repos con commits y sin cliente: {none}", "", "Proyectos por cliente:"]
+    for c in [r["client"] for r in cl]:
+        ps = [r for r in pr if r["client"] == c]
+        lines.append(f"- {c}: " + ("; ".join(f"{r['project']} ({r['repos']})" for r in ps) or "sin proyectos")
+                     + (f" · {sin[c]} repos sin proyecto" if sin.get(c) else ""))
+    lines += ["", "Etiquetas: " + ", ".join(f"{r['tag']} ({r['n']})" for r in tg)]
+    return "\n".join(lines)
 
 
 def _asignar(a):
@@ -190,7 +231,7 @@ def _asignar(a):
             if not r:
                 res.append(f"- {name}: no encontrado")
                 continue
-            cur = meta.get(r["id"], {"clients": [], "tags": []})
+            cur = meta.get(r["id"], {"clients": [], "tags": [], "projects": {}})
             cl, tg = cur["clients"], cur["tags"]
             new_cl, new_tg = a.get("clientes"), a.get("etiquetas")
             if modo == "reemplazar":
@@ -205,6 +246,32 @@ def _asignar(a):
             out = db.set_meta(conn, r["id"], cl, tg)
             res.append(f"- {r['full_name']}: clientes {', '.join(out['clients']) or '—'}; "
                        f"etiquetas {', '.join(out['tags']) or '—'}")
+    return "Actualizado:\n" + "\n".join(res)
+
+
+def _proyecto(a):
+    client = (a.get("cliente") or "").strip()
+    project = (a.get("proyecto") or "").strip()
+    if not client:
+        raise ValueError("Falta el cliente.")
+    res = []
+    with db.session() as conn:
+        meta = db.get_meta(conn)
+        for name in a["repositorios"]:
+            r = db.find_repo(conn, name)
+            if not r:
+                res.append(f"- {name}: no encontrado")
+                continue
+            cur = meta.get(r["id"], {"clients": [], "tags": [], "projects": {}})
+            match = next((c for c in cur["clients"] if c.lower() == client.lower()), None)
+            if not match:
+                projects = dict(cur["projects"]); projects[client] = project
+                db.set_meta(conn, r["id"], cur["clients"] + [client], cur["tags"], projects)
+                res.append(f"- {r['full_name']}: cliente {client} agregado" + (f", proyecto «{project}»" if project else ""))
+            else:
+                db.set_project(conn, r["id"], match, project)
+                res.append(f"- {r['full_name']}: " + (f"proyecto «{project}» para {match}" if project
+                                                       else f"sin proyecto para {match}"))
     return "Actualizado:\n" + "\n".join(res)
 
 
@@ -223,7 +290,7 @@ def _sync(a):
 
 HANDLERS = {"resumen_commits": _resumen, "matriz_mensual": _matriz, "listar_repositorios": _listar,
             "commits_de_repositorio": _commits, "clientes_y_etiquetas": _opciones,
-            "asignar_clientes_etiquetas": _asignar, "sincronizar_github": _sync}
+            "asignar_clientes_etiquetas": _asignar, "asignar_proyecto": _proyecto, "sincronizar_github": _sync}
 
 
 def handle(msg: dict) -> dict | None:

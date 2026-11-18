@@ -147,6 +147,7 @@ def matrix(bots: bool = False):
             "select repo_id, month, count(*) n, max(local_date) last from bitacora.commits "
             "where %s or not is_bot group by repo_id, month", (bots,)).fetchall()
         last_commit = conn.execute("select max(local_date) d from bitacora.commits").fetchone()["d"]
+        client_projects = db.client_projects(conn)
     counts: dict[int, dict] = {}
     for r in rows:
         c = counts.setdefault(r["repo_id"], {"months": {}, "total": 0, "last": ""})
@@ -165,8 +166,9 @@ def matrix(bots: bool = False):
                     "created": r["created_at"].astimezone(tz).date().isoformat() if r["created_at"] else "",
                     "clients": meta.get(r["id"], {}).get("clients", []),
                     "tags": meta.get(r["id"], {}).get("tags", []),
+                    "projects": meta.get(r["id"], {}).get("projects", {}),
                     "months": c["months"], "total": c["total"], "last": c["last"], "error": r["last_error"]})
-    return {"months": _months(settings.since[:7], end), "repos": out,
+    return {"months": _months(settings.since[:7], end), "repos": out, "client_projects": client_projects,
             "last_commit": last_commit.isoformat() if last_commit else None,
             "since": settings.since, "timezone": settings.timezone}
 
@@ -188,6 +190,7 @@ def repo_commits(repo_id: int, bots: bool = False):
 class MetaIn(BaseModel):
     clients: list[str] = []
     tags: list[str] = []
+    projects: dict[str, str] | None = None   # {cliente: proyecto}; None = conservar los actuales
 
 
 @app.put("/api/repos/{repo_id}/meta")
@@ -195,7 +198,7 @@ def put_meta(repo_id: int, body: MetaIn):
     with db.session() as conn:
         if not conn.execute("select 1 from bitacora.repos where id=%s", (repo_id,)).fetchone():
             raise HTTPException(404, "Repositorio no encontrado")
-        return db.set_meta(conn, repo_id, body.clients, body.tags)
+        return db.set_meta(conn, repo_id, body.clients, body.tags, body.projects)
 
 
 @app.get("/api/meta/export")
@@ -208,7 +211,7 @@ def meta_export():
 async def meta_import(request: Request):
     data = await request.json()
     if not isinstance(data, dict):
-        raise HTTPException(400, "Se espera un objeto {repo: {clients, tags}}")
+        raise HTTPException(400, "Se espera un objeto {repo: {clients, tags, projects}}")
     with db.session() as conn:
         return db.import_meta(conn, data, overwrite=True)
 
@@ -231,8 +234,9 @@ def sync_status():
 @app.get("/api/summary")
 def get_summary(month_from: str | None = None, month_to: str | None = None, client: str | None = None,
                 tag: str | None = None, repo: str | None = None, bots: bool = False, format: str = "json",
-                messages: bool = True):
-    f = summary.Filters(month_from or None, month_to or None, client or None, tag or None, repo or None, bots)
+                messages: bool = True, project: str | None = None):
+    f = summary.Filters(month_from or None, month_to or None, client or None, tag or None, repo or None, bots,
+                        (project or None) if client else None)
     with db.session() as conn:
         data = summary.query(conn, f)
     stamp = f"{f.month_from or 'inicio'}_{f.month_to or 'hoy'}"
