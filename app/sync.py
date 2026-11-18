@@ -1,189 +1,173 @@
-"""Sincronización on-demand: descubre repos nuevos y descarga sus commits.
+"""Sincronización on-demand con GitHub, en pasos cortos (compatibles con funciones serverless).
 
-Cada repo se guarda como espejo git "bare" parcial (sin contenido de archivos, solo historial)
-en /data/mirrors/<id>.git. Solo se vuelven a descargar los repos cuyo `pushed_at` cambió desde
-la última vez, así que una sincronización normal tarda segundos.
+1. start(): lista los repos del token, agrega los nuevos y marca para revisión los que tuvieron
+   push desde la última vez (o todos si force=True). Crea una corrida en sync_runs.
+2. step(): descarga commits de los repos marcados hasta agotar el presupuesto de tiempo y
+   devuelve cuántos faltan. Se llama repetidamente hasta que no falte ninguno.
+
+Por cada rama solo se piden commits si su último SHA cambió, y se deja de paginar al encontrar
+una página de commits ya conocidos.
 """
-import base64
-import json
-import os
-import subprocess
-import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import date, datetime, timedelta, timezone
-from pathlib import Path
+import time
+from concurrent.futures import ThreadPoolExecutor
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
+
+from psycopg.types.json import Jsonb
 
 from . import db, github
 from .config import settings
 
-SEP_FIELD, SEP_REC = "\x1f", "\x1e"
+
+def _current_run(conn):
+    return conn.execute("select * from bitacora.sync_runs where status='running' order by id desc limit 1").fetchone()
 
 
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+def _pending(conn) -> int:
+    return conn.execute("select count(*) n from bitacora.repos where needs_fetch and not gone").fetchone()["n"]
 
 
-def _git_env() -> dict:
-    env = dict(os.environ)
-    token = base64.b64encode(f"x-access-token:{settings.github_token}".encode()).decode()
-    # El token viaja como header y nunca se escribe en la config del espejo.
-    env.update({
-        "GIT_TERMINAL_PROMPT": "0",
-        "GIT_CONFIG_COUNT": "1",
-        "GIT_CONFIG_KEY_0": "http.https://github.com/.extraheader",
-        "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: basic {token}",
-    })
-    return env
-
-
-def _git(args: list[str], cwd: Path | None = None, timeout: int = 900) -> str:
-    res = subprocess.run(["git", *args], cwd=cwd, env=_git_env(), capture_output=True,
-                         text=True, timeout=timeout)
-    if res.returncode != 0:
-        raise RuntimeError(res.stderr.strip()[-400:] or f"git {args[0]} falló")
-    return res.stdout
-
-
-def fetch_repo_commits(repo: dict) -> list[tuple]:
-    """Actualiza el espejo del repo y devuelve filas de commits desde SINCE."""
-    tz = ZoneInfo(settings.timezone)
-    since = date.fromisoformat(settings.since)
-    mirror = settings.mirrors_dir / f"{repo['id']}.git"
-    url = f"https://github.com/{repo['full_name']}.git"
-    if not (mirror / "HEAD").exists():
-        mirror.parent.mkdir(parents=True, exist_ok=True)
-        _git(["clone", "--quiet", "--bare", "--filter=blob:none", url, str(mirror)])
-    else:
-        _git(["remote", "set-url", "origin", url], cwd=mirror)
-    _git(["fetch", "--quiet", "--prune", "--filter=blob:none", "origin",
-          "+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*"], cwd=mirror)
-    if not _git(["for-each-ref", "--count=1", "refs/heads"], cwd=mirror).strip():
-        return []  # repo vacío
-    out = _git(["log", "--all", f"--since={(since - timedelta(days=2)).isoformat()}",
-                f"--format=%H{SEP_FIELD}%aI{SEP_FIELD}%an{SEP_FIELD}%ae{SEP_FIELD}%s{SEP_REC}"], cwd=mirror)
-    rows = []
-    for rec in out.split(SEP_REC):
-        rec = rec.strip("\n")
-        if not rec:
-            continue
-        sha, when, name, email, subject = rec.split(SEP_FIELD, 4)
-        local = datetime.fromisoformat(when).astimezone(tz)
-        if local.date() < since:
-            continue
-        rows.append((repo["id"], sha, when, local.strftime("%Y-%m-%d"), local.strftime("%H:%M"),
-                     local.strftime("%Y-%m"), name, email, int(settings.is_bot(name)), subject[:500]))
-    return rows
-
-
-class SyncManager:
-    def __init__(self):
-        self._lock = threading.Lock()
-        self.status: dict = {"running": False, "phase": "idle", "done": 0, "total": 0, "current": None,
-                             "last": None, "error": None}
-
-    def start(self, force: bool = False) -> bool:
-        if not self._lock.acquire(blocking=False):
-            return False
-        threading.Thread(target=self._run_locked, args=(force,), daemon=True).start()
-        return True
-
-    def run_blocking(self, force: bool = False) -> dict:
-        with self._lock:
-            return self._run(force)
-
-    def _run_locked(self, force: bool):
-        try:
-            self._run(force)
-        finally:
-            self._lock.release()
-
-    def _run(self, force: bool) -> dict:
-        st = self.status
-        st.update(running=True, phase="Buscando repositorios en GitHub", done=0, total=0, current=None, error=None)
-        started = _now()
-        errors: list[str] = []
-        new_repos: list[str] = []
-        new_commits = 0
-        to_fetch: list[dict] = []
-        try:
-            remote = github.list_repos()
-            with db.session() as conn:
-                known = {r["id"]: dict(r) for r in conn.execute("SELECT * FROM repos")}
-                seen = set()
-                for r in remote:
-                    seen.add(r["id"])
-                    if r["id"] not in known:
-                        new_repos.append(r["full_name"])
-                        conn.execute(
-                            "INSERT INTO repos (id, full_name, owner, name, private, fork, archived, html_url,"
-                            " created_at, pushed_at, first_seen_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                            (r["id"], r["full_name"], r["owner"], r["name"], r["private"], r["fork"],
-                             r["archived"], r["html_url"], r["created_at"], r["pushed_at"], started))
-                    else:
-                        conn.execute(
-                            "UPDATE repos SET full_name=?, owner=?, name=?, private=?, fork=?, archived=?,"
-                            " html_url=?, created_at=?, pushed_at=?, gone=0 WHERE id=?",
-                            (r["full_name"], r["owner"], r["name"], r["private"], r["fork"], r["archived"],
-                             r["html_url"], r["created_at"], r["pushed_at"], r["id"]))
-                    prev = known.get(r["id"], {})
-                    pushed = r["pushed_at"] or ""
-                    # Repos sin push desde SINCE no tienen commits que nos interesen.
-                    if pushed and pushed[:10] < settings.since and not prev.get("fetched_pushed_at") and not force:
-                        continue
-                    if force or prev.get("fetched_pushed_at") != pushed:
-                        to_fetch.append(r)
-                for rid in set(known) - seen:
-                    conn.execute("UPDATE repos SET gone=1 WHERE id=?", (rid,))
-                db.apply_pending_meta(conn)
-
-            st.update(phase="Descargando commits", total=len(to_fetch))
-            with ThreadPoolExecutor(max_workers=max(1, settings.sync_workers)) as pool:
-                futures = {pool.submit(fetch_repo_commits, r): r for r in to_fetch}
-                for fut in as_completed(futures):
-                    r = futures[fut]
-                    st["current"] = r["full_name"]
-                    with db.session() as conn:
-                        try:
-                            rows = fut.result()
-                            before = conn.total_changes
-                            conn.executemany(
-                                "INSERT OR IGNORE INTO commits VALUES (?,?,?,?,?,?,?,?,?,?)", rows)
-                            new_commits += conn.total_changes - before
-                            conn.execute("UPDATE repos SET fetched_pushed_at=?, last_fetch_at=?, last_error=NULL"
-                                         " WHERE id=?", (r["pushed_at"], _now(), r["id"]))
-                        except Exception as e:  # noqa: BLE001 - un repo no debe tumbar la corrida
-                            msg = f"{r['full_name']}: {e}"
-                            errors.append(msg)
-                            conn.execute("UPDATE repos SET last_error=? WHERE id=?", (str(e)[:500], r["id"]))
-                    st["done"] += 1
-        except Exception as e:  # noqa: BLE001
-            errors.append(str(e))
-            st["error"] = str(e)
-        finished = _now()
-        result = {"started_at": started, "finished_at": finished, "forced": force,
-                  "repos_total": None, "new_repos": new_repos, "repos_fetched": len(to_fetch),
-                  "new_commits": new_commits, "errors": errors}
-        with db.session() as conn:
-            result["repos_total"] = conn.execute("SELECT COUNT(*) FROM repos WHERE gone=0").fetchone()[0]
-            conn.execute(
-                "INSERT INTO sync_runs (started_at, finished_at, forced, repos_total, new_repos, repos_fetched,"
-                " new_commits, errors) VALUES (?,?,?,?,?,?,?,?)",
-                (started, finished, int(force), result["repos_total"], json.dumps(new_repos), len(to_fetch),
-                 new_commits, json.dumps(errors)))
-        st.update(running=False, phase="idle", current=None, last=result)
-        return result
-
-
-manager = SyncManager()
-
-
-def last_run() -> dict | None:
+def start(force: bool = False) -> dict:
+    remote = github.list_repos()
     with db.session() as conn:
-        r = conn.execute("SELECT * FROM sync_runs ORDER BY id DESC LIMIT 1").fetchone()
-    if not r:
-        return None
-    d = dict(r)
-    d["new_repos"] = json.loads(d["new_repos"] or "[]")
-    d["errors"] = json.loads(d["errors"] or "[]")
-    return d
+        run = _current_run(conn)
+        known = {r["id"]: r for r in conn.execute("select id, fetched_pushed_at from bitacora.repos")}
+        new_repos = []
+        since = settings.since
+        for r in remote:
+            if r["id"] not in known:
+                new_repos.append(r["full_name"])
+            conn.execute(
+                """insert into bitacora.repos (id, full_name, owner, name, private, fork, archived, html_url,
+                       created_at, pushed_at, gone)
+                   values (%(id)s,%(full_name)s,%(owner)s,%(name)s,%(private)s,%(fork)s,%(archived)s,%(html_url)s,
+                       %(created_at)s,%(pushed_at)s,false)
+                   on conflict (id) do update set full_name=excluded.full_name, owner=excluded.owner,
+                       name=excluded.name, private=excluded.private, fork=excluded.fork,
+                       archived=excluded.archived, html_url=excluded.html_url, created_at=excluded.created_at,
+                       pushed_at=excluded.pushed_at, gone=false""", r)
+        # Marcar para revisión: forzado, o con push nuevo. Sin push desde SINCE = nada que buscar.
+        ids = [r["id"] for r in remote]
+        conn.execute(
+            """update bitacora.repos set needs_fetch = true
+               where id = any(%s) and pushed_at is not null and pushed_at >= %s::date
+                 and (%s or fetched_pushed_at is distinct from pushed_at)""", (ids, since, force))
+        conn.execute("update bitacora.repos set gone = true, needs_fetch = false where not (id = any(%s))", (ids,))
+        db.apply_pending_meta(conn)
+        total = len(remote)
+        if run:
+            new = list(dict.fromkeys(list(run["new_repos"]) + new_repos))
+            conn.execute("update bitacora.sync_runs set repos_total=%s, new_repos=%s, forced=forced or %s "
+                         "where id=%s", (total, Jsonb(new), force, run["id"]))
+        else:
+            conn.execute("insert into bitacora.sync_runs (forced, repos_total, new_repos) values (%s,%s,%s)",
+                         (force, total, Jsonb(new_repos)))
+        return {"pending": _pending(conn), "new_repos": new_repos, "repos_total": total}
+
+
+def _fetch_repo(repo: dict, known_shas: set[str], known_branches: dict[str, str]):
+    tz = ZoneInfo(settings.timezone)
+    since_d = date.fromisoformat(settings.since)
+    since_iso = f"{(since_d - timedelta(days=2)).isoformat()}T00:00:00Z"
+    branches = github.list_branches(repo["full_name"])
+    seen = set(known_shas)
+    rows = []
+    for name, head in branches:
+        if known_branches.get(name) == head:
+            continue
+        for page in github.commit_pages(repo["full_name"], name, since_iso):
+            fresh = [c for c in page if c["sha"] not in seen]
+            for c in fresh:
+                seen.add(c["sha"])
+                a = c["commit"]["author"] or {}
+                when = datetime.fromisoformat(a.get("date", "").replace("Z", "+00:00"))
+                local = when.astimezone(tz)
+                if local.date() < since_d:
+                    continue
+                author = a.get("name") or ""
+                login = (c.get("author") or {}).get("login") or ""
+                msg = (c["commit"].get("message") or "").split("\n", 1)[0][:500]
+                rows.append((repo["id"], c["sha"], when, local.date(), local.strftime("%H:%M"),
+                             local.strftime("%Y-%m"), author, a.get("email"), settings.is_bot(author, login), msg))
+            if not fresh:
+                break  # página completa ya conocida: lo anterior también
+    return rows, branches
+
+
+def step(budget: float | None = None) -> dict:
+    budget = settings.sync_budget if budget is None else budget
+    deadline = time.monotonic() + budget
+    with db.session() as conn:
+        run = _current_run(conn)
+        if not run:
+            return status()
+        queue = conn.execute("select id, full_name, pushed_at from bitacora.repos where needs_fetch and not gone "
+                             "order by pushed_at desc nulls last").fetchall()
+    workers = max(1, settings.sync_workers)
+    new_commits, fetched, errors = 0, 0, []
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        while queue and time.monotonic() < deadline - 12:
+            chunk, queue = queue[:workers], queue[workers:]
+            with db.session() as conn:
+                ctx = {}
+                for r in chunk:
+                    shas = {x["sha"] for x in conn.execute("select sha from bitacora.commits where repo_id=%s",
+                                                          (r["id"],))}
+                    br = {x["name"]: x["head_sha"] for x in conn.execute(
+                        "select name, head_sha from bitacora.repo_branches where repo_id=%s", (r["id"],))}
+                    ctx[r["id"]] = (shas, br)
+            futures = [(r, pool.submit(_fetch_repo, r, *ctx[r["id"]])) for r in chunk]
+            with db.session() as conn:
+                for r, fut in futures:
+                    try:
+                        rows, branches = fut.result()
+                        with conn.cursor() as cur:
+                            if rows:
+                                before = conn.execute("select count(*) n from bitacora.commits where repo_id=%s",
+                                                      (r["id"],)).fetchone()["n"]
+                                cur.executemany(
+                                    "insert into bitacora.commits values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) "
+                                    "on conflict do nothing", rows)
+                                after = conn.execute("select count(*) n from bitacora.commits where repo_id=%s",
+                                                     (r["id"],)).fetchone()["n"]
+                                new_commits += after - before
+                            cur.execute("delete from bitacora.repo_branches where repo_id=%s", (r["id"],))
+                            if branches:
+                                cur.executemany("insert into bitacora.repo_branches values (%s,%s,%s)",
+                                                [(r["id"], n, s) for n, s in branches])
+                        conn.execute("update bitacora.repos set needs_fetch=false, fetched_pushed_at=pushed_at, "
+                                     "last_fetch_at=now(), last_error=null where id=%s", (r["id"],))
+                    except Exception as e:  # noqa: BLE001 - un repo no debe tumbar la corrida
+                        errors.append(f"{r['full_name']}: {e}")
+                        conn.execute("update bitacora.repos set needs_fetch=false, last_error=%s where id=%s",
+                                     (str(e)[:500], r["id"]))
+                    fetched += 1
+                conn.execute(
+                    "update bitacora.sync_runs set repos_fetched=repos_fetched+%s, new_commits=new_commits+%s, "
+                    "errors=errors || %s where id=%s", (fetched, new_commits, Jsonb(errors), run["id"]))
+                fetched, new_commits, errors = 0, 0, []
+    with db.session() as conn:
+        if _pending(conn) == 0:
+            conn.execute("update bitacora.sync_runs set status='done', finished_at=now() where id=%s", (run["id"],))
+    return status()
+
+
+def run(force: bool = False, budget: float | None = None) -> dict:
+    """Inicia (o continúa) una revisión y trabaja hasta agotar el presupuesto."""
+    t0 = time.monotonic()
+    budget = settings.sync_budget if budget is None else budget
+    with db.session() as conn:
+        running = _current_run(conn)
+    if force or not running:
+        start(force)
+    return step(max(5.0, budget - (time.monotonic() - t0)))
+
+
+def status() -> dict:
+    with db.session() as conn:
+        r = conn.execute("select * from bitacora.sync_runs order by id desc limit 1").fetchone()
+        pending = _pending(conn)
+    last = None
+    if r:
+        last = {k: (v.isoformat() if hasattr(v, "isoformat") else v) for k, v in r.items()}
+    return {"running": bool(r and r["status"] == "running"), "pending": pending, "last": last}

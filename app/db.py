@@ -1,95 +1,28 @@
-"""SQLite: esquema y acceso. Un archivo en el volumen /data."""
-import json
-import sqlite3
+"""Acceso a Postgres. Todas las tablas viven en el schema "bitacora"."""
 from contextlib import contextmanager
-from pathlib import Path
+
+import psycopg
+from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 
 from .config import settings
-
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS repos (
-    id              INTEGER PRIMARY KEY,      -- id de GitHub (sobrevive renombres)
-    full_name       TEXT NOT NULL,
-    owner           TEXT NOT NULL,
-    name            TEXT NOT NULL,
-    private         INTEGER NOT NULL DEFAULT 0,
-    fork            INTEGER NOT NULL DEFAULT 0,
-    archived        INTEGER NOT NULL DEFAULT 0,
-    html_url        TEXT,
-    created_at      TEXT,                     -- ISO UTC según GitHub
-    pushed_at       TEXT,
-    first_seen_at   TEXT NOT NULL,
-    fetched_pushed_at TEXT,                   -- pushed_at de la última descarga de commits
-    last_fetch_at   TEXT,
-    last_error      TEXT,
-    gone            INTEGER NOT NULL DEFAULT 0 -- ya no aparece en la cuenta
-);
-CREATE TABLE IF NOT EXISTS commits (
-    repo_id      INTEGER NOT NULL REFERENCES repos(id),
-    sha          TEXT NOT NULL,
-    committed_at TEXT NOT NULL,               -- fecha de autor, ISO con zona original
-    local_date   TEXT NOT NULL,               -- YYYY-MM-DD en TIMEZONE
-    local_time   TEXT NOT NULL,               -- HH:MM en TIMEZONE
-    month        TEXT NOT NULL,               -- YYYY-MM en TIMEZONE
-    author_name  TEXT NOT NULL,
-    author_email TEXT,
-    is_bot       INTEGER NOT NULL DEFAULT 0,
-    message      TEXT NOT NULL,
-    PRIMARY KEY (repo_id, sha)
-);
-CREATE INDEX IF NOT EXISTS commits_month ON commits(month);
-CREATE TABLE IF NOT EXISTS repo_clients (
-    repo_id INTEGER NOT NULL REFERENCES repos(id),
-    client  TEXT NOT NULL,
-    PRIMARY KEY (repo_id, client)
-);
-CREATE TABLE IF NOT EXISTS repo_tags (
-    repo_id INTEGER NOT NULL REFERENCES repos(id),
-    tag     TEXT NOT NULL,
-    PRIMARY KEY (repo_id, tag)
-);
--- Clientes/etiquetas importados para repos que aún no se han descubierto.
-CREATE TABLE IF NOT EXISTS pending_meta (
-    name    TEXT PRIMARY KEY,
-    payload TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS sync_runs (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    started_at  TEXT NOT NULL,
-    finished_at TEXT,
-    forced      INTEGER NOT NULL DEFAULT 0,
-    repos_total INTEGER,
-    new_repos   TEXT,                         -- JSON lista de full_name
-    repos_fetched INTEGER,
-    new_commits INTEGER,
-    errors      TEXT                          -- JSON lista
-);
-"""
-
-
-def connect(path: Path | None = None) -> sqlite3.Connection:
-    path = path or settings.db_path
-    path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path, timeout=30, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    return conn
 
 
 @contextmanager
 def session():
-    conn = connect()
+    if not settings.database_url:
+        raise RuntimeError("Falta DATABASE_URL")
+    # prepare_threshold=None: compatible con el pooler de Supabase en modo transacción.
+    conn = psycopg.connect(settings.database_url, row_factory=dict_row, prepare_threshold=None,
+                           connect_timeout=10)
     try:
         yield conn
         conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
-
-
-def init() -> None:
-    with session() as conn:
-        conn.executescript(SCHEMA)
 
 
 # ---- clientes y etiquetas -------------------------------------------------
@@ -112,59 +45,72 @@ def norm_tags(values) -> list[str]:
     return out
 
 
-def set_meta(conn: sqlite3.Connection, repo_id: int, clients, tags) -> dict:
+def set_meta(conn, repo_id: int, clients, tags) -> dict:
     clients, tags = norm_clients(clients), norm_tags(tags)
-    conn.execute("DELETE FROM repo_clients WHERE repo_id=?", (repo_id,))
-    conn.execute("DELETE FROM repo_tags WHERE repo_id=?", (repo_id,))
-    conn.executemany("INSERT INTO repo_clients VALUES (?,?)", [(repo_id, c) for c in clients])
-    conn.executemany("INSERT INTO repo_tags VALUES (?,?)", [(repo_id, t) for t in tags])
+    with conn.cursor() as cur:
+        cur.execute("delete from bitacora.repo_clients where repo_id=%s", (repo_id,))
+        cur.execute("delete from bitacora.repo_tags where repo_id=%s", (repo_id,))
+        if clients:
+            cur.executemany("insert into bitacora.repo_clients (repo_id, client, pos) values (%s,%s,%s)",
+                            [(repo_id, c, i) for i, c in enumerate(clients)])
+        if tags:
+            cur.executemany("insert into bitacora.repo_tags (repo_id, tag, pos) values (%s,%s,%s)",
+                            [(repo_id, t, i) for i, t in enumerate(tags)])
     return {"clients": clients, "tags": tags}
 
 
-def get_meta(conn: sqlite3.Connection) -> dict[int, dict]:
+def get_meta(conn) -> dict[int, dict]:
     meta: dict[int, dict] = {}
-    for r in conn.execute("SELECT repo_id, client FROM repo_clients ORDER BY rowid"):
+    for r in conn.execute("select repo_id, client from bitacora.repo_clients order by repo_id, pos"):
         meta.setdefault(r["repo_id"], {"clients": [], "tags": []})["clients"].append(r["client"])
-    for r in conn.execute("SELECT repo_id, tag FROM repo_tags ORDER BY rowid"):
+    for r in conn.execute("select repo_id, tag from bitacora.repo_tags order by repo_id, pos"):
         meta.setdefault(r["repo_id"], {"clients": [], "tags": []})["tags"].append(r["tag"])
     return meta
 
 
-def import_meta(conn: sqlite3.Connection, data: dict[str, dict], overwrite: bool = False) -> dict:
+def find_repo(conn, name: str):
+    """Busca por nombre o owner/nombre, sin distinguir mayúsculas."""
+    return conn.execute(
+        "select * from bitacora.repos where (lower(name)=lower(%s) or lower(full_name)=lower(%s)) "
+        "order by gone, pushed_at desc nulls last limit 1", (name, name)).fetchone()
+
+
+def import_meta(conn, data: dict[str, dict], overwrite: bool = True) -> dict:
     """Importa {nombre_repo: {clients, tags}}. Los repos aún no descubiertos quedan pendientes."""
-    applied, pending = 0, 0
+    applied, pending, skipped = 0, 0, 0
     for name, m in data.items():
-        row = conn.execute(
-            "SELECT id FROM repos WHERE lower(name)=lower(?) OR lower(full_name)=lower(?)", (name, name)
-        ).fetchone()
+        if not isinstance(m, dict):
+            continue
+        clients = m.get("clients") or ([m["client"]] if m.get("client") else [])
+        row = find_repo(conn, name)
         if row:
             has = conn.execute(
-                "SELECT 1 FROM repo_clients WHERE repo_id=? UNION SELECT 1 FROM repo_tags WHERE repo_id=?",
-                (row["id"], row["id"])).fetchone()
+                "select 1 from bitacora.repo_clients where repo_id=%(i)s "
+                "union select 1 from bitacora.repo_tags where repo_id=%(i)s", {"i": row["id"]}).fetchone()
             if has and not overwrite:
+                skipped += 1
                 continue
-            set_meta(conn, row["id"], m.get("clients"), m.get("tags"))
+            set_meta(conn, row["id"], clients, m.get("tags"))
             applied += 1
         else:
-            conn.execute("INSERT OR REPLACE INTO pending_meta VALUES (?,?)", (name.lower(), json.dumps(m)))
+            conn.execute("insert into bitacora.pending_meta (name, payload) values (%s,%s) "
+                         "on conflict (name) do update set payload=excluded.payload",
+                         (name.lower(), Jsonb({"clients": clients, "tags": m.get("tags") or []})))
             pending += 1
-    return {"applied": applied, "pending": pending}
+    return {"applied": applied, "pending": pending, "skipped": skipped}
 
 
-def apply_pending_meta(conn: sqlite3.Connection) -> int:
-    rows = conn.execute("SELECT name, payload FROM pending_meta").fetchall()
+def apply_pending_meta(conn) -> int:
     n = 0
-    for r in rows:
-        repo = conn.execute(
-            "SELECT id FROM repos WHERE lower(name)=? OR lower(full_name)=?", (r["name"], r["name"])).fetchone()
+    for r in conn.execute("select name, payload from bitacora.pending_meta").fetchall():
+        repo = find_repo(conn, r["name"])
         if repo:
-            m = json.loads(r["payload"])
-            set_meta(conn, repo["id"], m.get("clients"), m.get("tags"))
-            conn.execute("DELETE FROM pending_meta WHERE name=?", (r["name"],))
+            set_meta(conn, repo["id"], r["payload"].get("clients"), r["payload"].get("tags"))
+            conn.execute("delete from bitacora.pending_meta where name=%s", (r["name"],))
             n += 1
     return n
 
 
-def export_meta(conn: sqlite3.Connection) -> dict:
-    names = {r["id"]: r["name"] for r in conn.execute("SELECT id, name FROM repos")}
+def export_meta(conn) -> dict:
+    names = {r["id"]: r["name"] for r in conn.execute("select id, name from bitacora.repos")}
     return {names[i]: m for i, m in get_meta(conn).items() if i in names}

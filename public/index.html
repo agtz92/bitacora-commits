@@ -115,13 +115,26 @@ button:focus-visible,select:focus-visible,input:focus-visible,a:focus-visible{ou
 .bymonth{display:flex;flex-wrap:wrap;gap:6px}
 .bymonth span{font-family:var(--mono);font-size:.75rem;padding:3px 8px;border:1px solid var(--line);border-radius:4px}
 .empty{padding:28px;text-align:center;color:var(--muted)}
+.login{position:fixed;inset:0;z-index:100;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:16px}
+.login form{width:min(360px,100%);background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:24px;display:flex;flex-direction:column;gap:14px}
+.login input{font:inherit;padding:9px 12px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg)}
+footer{display:flex;flex-wrap:wrap;gap:14px;align-items:center;justify-content:flex-end;font-size:.82rem;color:var(--muted);border-top:1px solid var(--line);padding-top:14px}
 [hidden]{display:none!important}
 @media (max-width:640px){.legend{margin-left:0}.sline{grid-template-columns:1fr}.syncbox{align-items:flex-start}.syncpanel{left:0;right:auto}}
 @media (prefers-reduced-motion: reduce){*{scroll-behavior:auto!important}}
 </style>
 </head>
 <body>
-<div class="wrap">
+<div class="login" id="login" hidden>
+  <form id="loginform">
+    <h1 style="font-size:1.4rem">Bitácora de commits</h1>
+    <label for="pw" class="note">Contraseña</label>
+    <input type="password" id="pw" autocomplete="current-password" required autofocus>
+    <button class="btn primary" type="submit">Entrar</button>
+    <span class="msg err" id="loginmsg"></span>
+  </form>
+</div>
+<div class="wrap" id="app" hidden>
   <header>
     <div>
       <h1>Bitácora de commits</h1>
@@ -178,6 +191,13 @@ button:focus-visible,select:focus-visible,input:focus-visible,a:focus-visible{ou
     </div>
     <div class="panel" id="sout"></div>
   </section>
+  <footer>
+    <label class="linkbtn" for="importfile">Importar clientes y etiquetas (JSON)</label>
+    <input type="file" id="importfile" accept="application/json,.json" hidden>
+    <a class="linkbtn" href="/api/meta/export" download="clientes-etiquetas.json">Exportar</a>
+    <button class="linkbtn" id="logout">Salir</button>
+    <span class="msg" id="footmsg"></span>
+  </footer>
 </div>
 <datalist id="clients"></datalist><datalist id="tagopts"></datalist>
 <script>
@@ -190,7 +210,11 @@ const fmtD=d=>{if(!d)return '';const[y,m,dd]=d.split('-');return `${+dd} ${MN[+m
 const hue=s=>{let h=0;for(const ch of s.toLowerCase())h=(h*31+ch.charCodeAt(0))%360;return h};
 const chip=c=>`<span class="chip" style="--h:${hue(c)}">${esc(c)}</span>`;
 const parseList=(s,lower)=>[...new Set(s.split(',').map(t=>lower?t.trim().toLowerCase():t.trim()).filter(Boolean))];
-const api=async(url,opt)=>{const r=await fetch(url,opt);if(!r.ok&&r.status!==409)throw new Error(await r.text()||r.status);return r.json()};
+class AuthError extends Error{}
+const api=async(url,opt)=>{const r=await fetch(url,{credentials:'same-origin',...opt});
+  if(r.status===401){showLogin();throw new AuthError('Inicia sesión')}
+  if(!r.ok){let m;try{m=(await r.json()).detail}catch(e){}throw new Error(m||('Error '+r.status))}return r.json()};
+function showLogin(){$('#login').hidden=false;$('#app').hidden=true;$('#pw').focus()}
 
 let state={q:'',sort:'created',bots:false,sel:null,fclient:'',ftag:''};
 try{Object.assign(state,JSON.parse(localStorage.getItem('bitacora')||'{}'));state.q='';}catch(e){}
@@ -306,39 +330,47 @@ document.addEventListener('click',e=>{
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(!pop.hidden)closePop();toggleSyncPanel(false)}});
 window.addEventListener('resize',()=>{if(!pop.hidden){const a=document.querySelector(`button[data-r="${popRepo}"]`);a?placePop(a):closePop()}});
 
-// ---- sincronización ----
-let polling=null;
-let lastSync=null;
+// ---- sincronización (en pasos de ~40 s) ----
+let lastSync=null,syncing=false;
 const fmtWhen=s=>new Date(s).toLocaleString('es-MX',{dateStyle:'medium',timeStyle:'short'});
 function renderSync(st){
-  const dot=$('#syncdot'),txt=$('#syncst');lastSync=st;
-  if(st.running){dot.className='dot run';txt.textContent=`${st.phase}${st.total?` · ${st.done} de ${st.total}`:''}`;txt.title=st.current||'';}
-  else if(!st.last){dot.className='dot';txt.textContent='Aún no se ha revisado GitHub';}
-  else{const l=st.last;dot.className='dot'+(l.errors.length?' err':'');
-    txt.textContent=`Revisado ${fmtWhen(l.finished_at||l.started_at)} · ${l.new_repos.length} repos nuevos · ${l.new_commits.toLocaleString('es-MX')} commits nuevos${l.errors.length?` · ${l.errors.length} con error`:''}`;txt.title='';}
+  const dot=$('#syncdot'),txt=$('#syncst');lastSync=st;const l=st.last;
+  if(syncing||st.running){dot.className='dot run';txt.textContent=syncing?`Revisando GitHub… faltan ${st.pending??'?'} repos`:`Revisión pendiente: faltan ${st.pending} repos (pulsa para continuar)`;}
+  else if(!l){dot.className='dot';txt.textContent='Aún no se ha revisado GitHub';}
+  else{dot.className='dot'+(l.errors.length?' err':'');
+    txt.textContent=`Revisado ${fmtWhen(l.finished_at||l.started_at)} · ${l.new_repos.length} repos nuevos · ${l.new_commits.toLocaleString('es-MX')} commits nuevos${l.errors.length?` · ${l.errors.length} con error`:''}`;}
+  $('#sync').disabled=$('#syncforce').disabled=syncing;
   if(!$('#syncpanel').hidden)renderSyncPanel();
 }
 function renderSyncPanel(){
   const st=lastSync,p=$('#syncpanel');if(!st)return;
-  if(st.running){p.innerHTML=`<h4>Revisando GitHub</h4><dl><dt>Paso</dt><dd>${esc(st.phase)}</dd><dt>Avance</dt><dd>${st.done} de ${st.total||'?'}</dd><dt>Repo</dt><dd>${esc(st.current||'…')}</dd></dl>`;return}
   const l=st.last;if(!l){p.innerHTML='<p class="note">Pulsa “Buscar repos y commits nuevos” para la primera revisión.</p>';return}
   const first=l.new_repos.length&&l.new_repos.length===l.repos_total;
-  p.innerHTML=`<h4>Última revisión</h4>
-  <dl><dt>Terminó</dt><dd>${fmtWhen(l.finished_at||l.started_at)}</dd><dt>Repos en GitHub</dt><dd>${l.repos_total??'?'}</dd><dt>Repos revisados</dt><dd>${l.repos_fetched}${l.forced?' (revisión completa)':''}</dd><dt>Commits nuevos</dt><dd>${l.new_commits.toLocaleString('es-MX')}</dd></dl>
+  p.innerHTML=`<h4>${st.running?'Revisión en curso':'Última revisión'}</h4>
+  <dl><dt>${st.running?'Empezó':'Terminó'}</dt><dd>${fmtWhen(st.running?l.started_at:(l.finished_at||l.started_at))}</dd><dt>Repos en GitHub</dt><dd>${l.repos_total??'?'}</dd><dt>Repos revisados</dt><dd>${l.repos_fetched}${l.forced?' (revisión completa)':''}${st.running?` · faltan ${st.pending}`:''}</dd><dt>Commits nuevos</dt><dd>${l.new_commits.toLocaleString('es-MX')}</dd></dl>
   ${l.new_repos.length?`<div><h4>${first?'Repos encontrados (primera revisión)':'Repos nuevos'} · ${l.new_repos.length}</h4><ul>${l.new_repos.map(n=>`<li>${esc(n.split('/')[1])}</li>`).join('')}</ul></div>`:''}
   ${l.errors.length?`<div><h4>Errores</h4><ul class="err">${l.errors.map(e=>`<li>${esc(e)}</li>`).join('')}</ul></div>`:''}`;
 }
 function toggleSyncPanel(open){const p=$('#syncpanel');open=open??p.hidden;p.hidden=!open;$('#syncmore').setAttribute('aria-expanded',String(open));if(open)renderSyncPanel()}
 $('#syncmore').onclick=e=>{e.stopPropagation();toggleSyncPanel()};
-async function pollSync(){
-  const st=await api('/api/sync');renderSync(st);
-  $('#sync').disabled=$('#syncforce').disabled=st.running;
-  if(st.running){if(!polling)polling=setInterval(pollSync,1500)}
-  else if(polling){clearInterval(polling);polling=null;detailCache={};await loadMatrix();fillSummaryFilters();if(!$('#v-resumen').hidden)runSummary()}
+async function refreshSync(){try{renderSync(await api('/api/sync'))}catch(e){if(!(e instanceof AuthError))$('#syncst').textContent='No se pudo leer el estado: '+e.message}}
+async function startSync(force){
+  if(syncing)return;syncing=true;renderSync({...(lastSync||{}),pending:'…'});
+  try{
+    let st=await api(`/api/sync/start?force=${force}`,{method:'POST'});renderSync({...(lastSync||{}),pending:st.pending});
+    do{st=await api('/api/sync/step',{method:'POST'});renderSync(st);detailCache={};await loadMatrix()}while(st.running);
+  }catch(e){if(!(e instanceof AuthError)){$('#syncst').textContent='Error: '+e.message;$('#syncdot').className='dot err'}}
+  finally{syncing=false;await refreshSync();fillSummaryFilters();if(!$('#v-resumen').hidden)runSummary()}
 }
-async function startSync(force){$('#sync').disabled=$('#syncforce').disabled=true;await api(`/api/sync?force=${force}`,{method:'POST'});pollSync();if(!polling)polling=setInterval(pollSync,1500)}
 $('#sync').onclick=()=>startSync(false);
 $('#syncforce').onclick=()=>startSync(true);
+
+// ---- importar / salir ----
+$('#importfile').onchange=async e=>{const f=e.target.files[0];if(!f)return;const m=$('#footmsg');
+  try{const data=JSON.parse(await f.text());const r=await api('/api/meta/import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+    m.textContent=`Importado: ${r.applied} repos${r.pending?` · ${r.pending} pendientes de descubrir`:''}`;m.className='msg ok';await loadMatrix();fillSummaryFilters()}
+  catch(err){m.textContent='No se pudo importar: '+err.message;m.className='msg err'}finally{e.target.value=''}};
+$('#logout').onclick=async()=>{await fetch('/api/logout',{method:'POST'});location.reload()};
 
 // ---- resumen ----
 function fillSummaryFilters(){
@@ -377,10 +409,15 @@ $('#ftag').onchange=e=>{state.ftag=e.target.value;save();renderTable()};
 $('#bots').onchange=async e=>{state.bots=e.target.checked;save();await loadMatrix()};
 $('#t').onclick=e=>{const b=e.target.closest('button[data-r]');if(!b)return;const id=+b.dataset.r;if(popRepo===id){closePop();return}openPop(id,b)};
 
-(async()=>{
+async function boot(){
+  $('#login').hidden=true;$('#app').hidden=false;
   const now=new Date();$('#s-to').value=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;$('#s-from').value=$('#s-to').value;
-  await loadMatrix();fillSummaryFilters();route();pollSync();
-})();
+  await loadMatrix();fillSummaryFilters();route();refreshSync();
+}
+$('#loginform').onsubmit=async e=>{e.preventDefault();const m=$('#loginmsg');m.textContent='';
+  const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:$('#pw').value})});
+  if(r.ok){$('#pw').value='';boot().catch(()=>{})}else{let d;try{d=(await r.json()).detail}catch(x){}m.textContent=d||'Contraseña incorrecta'}};
+(async()=>{const s=await (await fetch('/api/session')).json();if(s.authenticated)boot().catch(()=>{});else showLogin()})();
 </script>
 </body>
 </html>
